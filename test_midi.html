@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MultiTanks - MIDI Controller Test</title>
+    <!-- WebMidi.js library for better MIDI handling -->
+    <script src="https://cdn.jsdelivr.net/npm/webmidi@3.1.0/dist/iife/webmidi.iife.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        
+        .container {
+            text-align: center;
+        }
+        
+        h1 {
+            color: #4CAF50;
+            margin-bottom: 30px;
+        }
+        
+        .status {
+            background-color: #333;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        
+        .controls {
+            background-color: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        
+        .note-mapping {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .note-item {
+            background-color: #444;
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+        }
+        
+        .note-item.movement {
+            border-left-color: #2196F3;
+        }
+        
+        .note-item.turret {
+            border-left-color: #FF9800;
+        }
+        
+        .console-output {
+            background-color: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            height: 400px;
+            overflow-y: auto;
+            text-align: left;
+            margin: 20px 0;
+        }
+        
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 MultiTanks - MIDI Controller Test</h1>
+        
+        <div class="status">
+            <h2>MIDI Status</h2>
+            <p id="midiStatus">Checking for MIDI support...</p>
+            <button id="connectBtn" onclick="requestWebMidiAccess()">Connect MIDI Device</button>
+        </div>
+        
+        <div class="controls">
+            <h2>🎹 MIDI Note Mapping</h2>
+            <div class="note-mapping">
+                <div class="note-item movement">
+                    <strong>A# (70)</strong><br>
+                    Move Up
+                </div>
+                <div class="note-item movement">
+                    <strong>A (69)</strong><br>
+                    Move Left
+                </div>
+                <div class="note-item movement">
+                    <strong>B (71)</strong><br>
+                    Move Down
+                </div>
+                <div class="note-item movement">
+                    <strong>C (72)</strong><br>
+                    Move Right
+                </div>
+                <div class="note-item turret">
+                    <strong>C# (73)</strong><br>
+                    Aim Left
+                </div>
+                <div class="note-item turret">
+                    <strong>D# (75)</strong><br>
+                    Aim Right
+                </div>
+                <div class="note-item turret">
+                    <strong>D (74)</strong><br>
+                    Shoot
+                </div>
+            </div>
+        </div>
+        
+        <div class="console-output" id="consoleOutput">
+            <div>🎵 MIDI Console Output:</div>
+            <div>Press keys on your MIDI keyboard to see input here...</div>
+        </div>
+        
+        <div class="controls">
+            <h2>🔧 Current Note Mappings</h2>
+            <p>If you see "Unknown note" messages, we need to update the mappings below:</p>
+            <div style="background-color: #333; padding: 15px; border-radius: 5px; font-family: monospace; text-align: left;">
+                <div>// Current mappings in code:</div>
+                <div>70: A# - Move Up</div>
+                <div>69: A - Move Left</div>
+                <div>71: B - Move Down</div>
+                <div>72: C - Move Right</div>
+                <div>73: C# - Aim Left</div>
+                <div>75: D# - Aim Right</div>
+                <div>74: D - Shoot</div>
+            </div>
+        </div>
+        
+        <button onclick="clearConsole()">Clear Console</button>
+    </div>
+
+    <script>
+        let midiAccess = null;
+        let midiInputs = [];
+        
+        // MIDI note mappings
+        const NOTE_MAPPINGS = {
+            70: { name: 'A#', action: 'Move Up', type: 'movement' },
+            69: { name: 'A', action: 'Move Left', type: 'movement' },
+            71: { name: 'B', action: 'Move Down', type: 'movement' },
+            72: { name: 'C', action: 'Move Right', type: 'movement' },
+            73: { name: 'C#', action: 'Aim Left', type: 'turret' },
+            75: { name: 'D#', action: 'Aim Right', type: 'turret' },
+            74: { name: 'D', action: 'Shoot', type: 'turret' }
+        };
+        
+        function logToConsole(message) {
+            const console = document.getElementById('consoleOutput');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            console.appendChild(logEntry);
+            console.scrollTop = console.scrollHeight;
+        }
+        
+        function clearConsole() {
+            const console = document.getElementById('consoleOutput');
+            console.innerHTML = '<div>🎵 MIDI Console Output:</div>';
+        }
+        
+        function updateMIDIStatus(message, isConnected = false) {
+            const statusElement = document.getElementById('midiStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            
+            statusElement.textContent = message;
+            connectBtn.disabled = isConnected;
+            
+            if (isConnected) {
+                statusElement.style.color = '#4CAF50';
+            } else {
+                statusElement.style.color = '#FF9800';
+            }
+        }
+        
+        
+        // WebMidi.js implementation
+        async function requestWebMidiAccess() {
+            try {
+                updateMIDIStatus('Initializing WebMidi.js...');
+                
+                if (typeof WebMidi === 'undefined') {
+                    throw new Error('WebMidi.js library not loaded');
+                }
+                
+                await WebMidi.enable();
+                
+                if (WebMidi.inputs.length === 0) {
+                    updateMIDIStatus('No MIDI devices found. Please connect a MIDI device and try again.');
+                    logToConsole('⚠️ No MIDI input devices detected with WebMidi.js');
+                    return;
+                }
+                
+                // Clear previous listeners
+                WebMidi.removeListener();
+                
+                // Add listeners to all inputs
+                WebMidi.inputs.forEach((input, index) => {
+                    logToConsole(`🔌 WebMidi.js connected to: ${input.name || `Input ${index + 1}`}`);
+                    
+                    input.addListener('noteon', 'all', (e) => {
+                        const noteInfo = NOTE_MAPPINGS[e.note.number];
+                        if (noteInfo) {
+                            logToConsole(`🎹 <strong>${noteInfo.name} (${e.note.number})</strong> - ${noteInfo.action} [${noteInfo.type}] - Velocity: ${e.velocity}`);
+                        } else {
+                            // Show ALL notes to help with mapping
+                            logToConsole(`🎵 Note ON: ${e.note.number} (${e.note.name}) - Velocity: ${e.velocity.toFixed(2)}`);
+                        }
+                    });
+                    
+                    input.addListener('noteoff', 'all', (e) => {
+                        const noteInfo = NOTE_MAPPINGS[e.note.number];
+                        if (noteInfo) {
+                            logToConsole(`🔇 <strong>${noteInfo.name} (${e.note.number})</strong> - ${noteInfo.action} [${noteInfo.type}] - Released (WebMidi.js)`);
+                        } else {
+                            // Show ALL note-off events
+                            logToConsole(`🔇 Note OFF: ${e.note.number} (${e.note.name}) - Released (WebMidi.js)`);
+                        }
+                    });
+                });
+                
+                updateMIDIStatus(`WebMidi.js connected to ${WebMidi.inputs.length} device(s)`, true);
+                logToConsole('✅ WebMidi.js initialized successfully!');
+                
+                // Disable the button
+                document.getElementById('connectBtn').disabled = true;
+                
+            } catch (error) {
+                updateMIDIStatus(`WebMidi.js Error: ${error.message}`);
+                logToConsole(`❌ WebMidi.js Error: ${error.message}`);
+            }
+        }
+        
+        // Initialize on page load
+        window.addEventListener('load', function() {
+            logToConsole('🚀 MultiTanks MIDI Test initialized');
+            logToConsole('📋 Supported notes: A#(70), A(69), B(71), C(72), C#(73), D#(75), D(74)');
+            
+            // Check if WebMidi.js is available
+            if (typeof WebMidi !== 'undefined') {
+                updateMIDIStatus('WebMidi.js loaded. Click "Connect MIDI Device" to start.');
+            } else {
+                updateMIDIStatus('WebMidi.js not loaded. Please refresh the page.');
+            }
+        });
+    </script>
+</body>
+</html>
