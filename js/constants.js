@@ -42,6 +42,19 @@ const GAME_CONFIG = {
     
     // Spawn settings
     SPAWN_DISTANCE_FROM_EDGE: 50, // Distance from map edge for tank spawning
+    
+    // AI behavior settings
+    AI_APPROACH_DISTANCE: 600, // Distance to approach target to
+    AI_ORBIT_SPEED: 0.02, // Speed of orbiting around enemy
+    AI_ORBIT_DIRECTION_CHANGE_CHANCE: 0.02, // Chance per frame to change orbit direction (2%)
+    AI_ORBIT_DISTANCE: 300, // Distance to maintain from enemy when orbiting
+    AI_MIN_ORBIT_DISTANCE: 100, // Minimum distance before attempting to orbit
+    AI_RETREAT_DURATION: 800, // How long to retreat when too close (milliseconds)
+    AI_AIMING_RANDOMNESS: 0.1, // Randomness in aiming (radians)
+    AI_SHOT_LEADING_ENABLED: true, // Whether AI should lead shots
+    AI_SHOT_LEADING_FACTOR: 20, // How much to lead shots (0-1, higher = more leading)
+    AI_SLIDE_SPEED_MULTIPLIER: 0.5, // Speed multiplier for obstacle sliding
+    AI_OBSTACLE_GENERATION_MAX_ATTEMPTS: 100, // Max attempts to place obstacles
 };
 
 // =============================================================================

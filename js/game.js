@@ -147,7 +147,14 @@ class MultiTanksGame {
             aiTarget: null,
             aiState: 'patrol', // 'patrol', 'chase', 'attack'
             aiTimer: 0,
-            aiDirection: Math.random() * Math.PI * 2
+            aiDirection: Math.random() * Math.PI * 2,
+            aiOrbitDirection: Math.random() < 0.5 ? 1 : -1, // 1 for clockwise, -1 for counterclockwise
+            aiOrbitAngle: 0, // Current orbit angle around target
+            aiRetreatEndTime: 0, // When to stop retreating
+            aiLastTargetX: 0, // Last known target X position for movement tracking
+            aiLastTargetY: 0, // Last known target Y position for movement tracking
+            aiTargetVelocityX: 0, // Target's X velocity
+            aiTargetVelocityY: 0 // Target's Y velocity
         };
     }
 
@@ -161,7 +168,7 @@ class MultiTanksGame {
         for (let i = 0; i < numObstacles; i++) {
             let obstacle;
             let attempts = 0;
-            const maxAttempts = 100;
+            const maxAttempts = GAME_CONFIG.AI_OBSTACLE_GENERATION_MAX_ATTEMPTS;
             
             do {
                 obstacle = this.generateRandomObstacle();
@@ -350,11 +357,6 @@ class MultiTanksGame {
             
             // Use sliding movement system
             this.moveTankWithSliding(tank, newX, newY, moveAngle);
-            
-            // Play movement sound occasionally
-            if (window.audioSystem && Math.random() < 0.1) {
-                window.audioSystem.tankMove();
-            }
         }
         
         // Handle turret rotation
@@ -400,18 +402,6 @@ class MultiTanksGame {
         return nearestEnemy;
     }
 
-    /**
-     * Check if a target is in the AI's field of view
-     * @param {Object} aiTank - AI tank
-     * @param {Object} target - Target tank
-     * @param {number} fovAngle - Field of view angle in radians (default: 120 degrees)
-     * @returns {boolean} True if target is in FOV
-     */
-    isTargetInFOV(aiTank, target, fovAngle = Math.PI * 2/3) {
-        const angleToTarget = Math.atan2(target.y - aiTank.y, target.x - aiTank.x);
-        const angleDiff = Math.abs(this.normalizeAngle(angleToTarget - aiTank.turretAngle));
-        return angleDiff <= fovAngle / 2;
-    }
 
     /**
      * Normalize angle to [-π, π] range
@@ -423,6 +413,7 @@ class MultiTanksGame {
         while (angle < -Math.PI) angle += 2 * Math.PI;
         return angle;
     }
+
 
     /**
      * Move tank with obstacle sliding
@@ -456,8 +447,8 @@ class MultiTanksGame {
 
         // Try sliding perpendicular to movement direction
         const perpendicularAngle = moveAngle + Math.PI / 2;
-        const slideX = tank.x + Math.cos(perpendicularAngle) * tank.speed * 0.5;
-        const slideY = tank.y + Math.sin(perpendicularAngle) * tank.speed * 0.5;
+        const slideX = tank.x + Math.cos(perpendicularAngle) * tank.speed * GAME_CONFIG.AI_SLIDE_SPEED_MULTIPLIER;
+        const slideY = tank.y + Math.sin(perpendicularAngle) * tank.speed * GAME_CONFIG.AI_SLIDE_SPEED_MULTIPLIER;
         
         if (!this.checkTankObstacleCollision(tank, slideX, slideY)) {
             tank.x = slideX;
@@ -468,8 +459,8 @@ class MultiTanksGame {
 
         // Try sliding in opposite perpendicular direction
         const oppositePerpendicularAngle = moveAngle - Math.PI / 2;
-        const slideX2 = tank.x + Math.cos(oppositePerpendicularAngle) * tank.speed * 0.5;
-        const slideY2 = tank.y + Math.sin(oppositePerpendicularAngle) * tank.speed * 0.5;
+        const slideX2 = tank.x + Math.cos(oppositePerpendicularAngle) * tank.speed * GAME_CONFIG.AI_SLIDE_SPEED_MULTIPLIER;
+        const slideY2 = tank.y + Math.sin(oppositePerpendicularAngle) * tank.speed * GAME_CONFIG.AI_SLIDE_SPEED_MULTIPLIER;
         
         if (!this.checkTankObstacleCollision(tank, slideX2, slideY2)) {
             tank.x = slideX2;
@@ -484,79 +475,113 @@ class MultiTanksGame {
      * @param {number} deltaTime - Time since last frame
      */
     updateAITank(tank, deltaTime) {
-        tank.aiTimer += deltaTime;
-        
         // Find nearest enemy (player or other AI)
         const nearestEnemy = this.findNearestEnemy(tank);
         if (!nearestEnemy) return;
         
         const distanceToEnemy = Math.sqrt((nearestEnemy.x - tank.x) ** 2 + (nearestEnemy.y - tank.y) ** 2);
         
-        // Update AI state based on distance
-        if (distanceToEnemy > 200) {
-            tank.aiState = 'chase';
-        } else if (distanceToEnemy > 100) {
-            tank.aiState = 'approach';
+        // Simple movement: approach until close enough, then orbit
+        if (distanceToEnemy > GAME_CONFIG.AI_APPROACH_DISTANCE) {
+            // Approach the target
+            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
+            const newX = tank.x + Math.cos(angleToEnemy) * tank.speed;
+            const newY = tank.y + Math.sin(angleToEnemy) * tank.speed;
+            
+            this.moveTankWithSliding(tank, newX, newY, angleToEnemy);
+        } else if (distanceToEnemy < GAME_CONFIG.AI_MIN_ORBIT_DISTANCE || Date.now() < tank.aiRetreatEndTime) {
+            // Too close or still in retreat mode! Move away from target
+            if (distanceToEnemy < GAME_CONFIG.AI_MIN_ORBIT_DISTANCE) {
+                // Start retreat timer
+                tank.aiRetreatEndTime = Date.now() + GAME_CONFIG.AI_RETREAT_DURATION;
+            }
+            
+            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
+            const angleAway = angleToEnemy + Math.PI; // Opposite direction
+            const newX = tank.x + Math.cos(angleAway) * tank.speed;
+            const newY = tank.y + Math.sin(angleAway) * tank.speed;
+            
+            this.moveTankWithSliding(tank, newX, newY, angleAway);
         } else {
-            tank.aiState = 'attack';
-        }
-        
-        // Movement behavior with obstacle sliding
-        if (tank.aiState === 'chase' || tank.aiState === 'approach') {
-            // Move toward enemy with frequent strafing
+            // Good distance for orbiting
             const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
             
-            // More frequent strafing when chasing (change direction more often)
-            const strafeVariation = (Math.random() - 0.5) * Math.PI / 2; // ±45 degrees
-            const moveAngle = angleToEnemy + strafeVariation;
+            // Randomly change orbit direction occasionally
+            if (Math.random() < GAME_CONFIG.AI_ORBIT_DIRECTION_CHANGE_CHANCE) {
+                tank.aiOrbitDirection *= -1; // Switch direction
+            }
             
-            // Try to move in the calculated direction
+            // Update orbit angle
+            tank.aiOrbitAngle += tank.aiOrbitDirection * GAME_CONFIG.AI_ORBIT_SPEED;
+            
+            // Calculate orbit position (perpendicular to line to enemy)
+            const orbitAngle = angleToEnemy + Math.PI / 2 + tank.aiOrbitAngle;
+            const orbitDistance = GAME_CONFIG.AI_ORBIT_DISTANCE;
+            
+            const targetX = nearestEnemy.x + Math.cos(orbitAngle) * orbitDistance;
+            const targetY = nearestEnemy.y + Math.sin(orbitAngle) * orbitDistance;
+            
+            // Move toward orbit position
+            const moveAngle = Math.atan2(targetY - tank.y, targetX - tank.x);
             const newX = tank.x + Math.cos(moveAngle) * tank.speed;
             const newY = tank.y + Math.sin(moveAngle) * tank.speed;
             
-            // Check collision and slide if needed
             this.moveTankWithSliding(tank, newX, newY, moveAngle);
-        } else if (tank.aiState === 'attack') {
-            // Strafe around the enemy
-            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
-            const strafeAngle = angleToEnemy + Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 2; // Perpendicular with variation
-            
-            const newX = tank.x + Math.cos(strafeAngle) * tank.speed;
-            const newY = tank.y + Math.sin(strafeAngle) * tank.speed;
-            
-            this.moveTankWithSliding(tank, newX, newY, strafeAngle);
         }
         
-        // Turret aiming behavior
-        if (this.isTargetInFOV(tank, nearestEnemy)) {
-            // Aim at the enemy
-            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
-            const angleDiff = this.normalizeAngle(angleToEnemy - tank.turretAngle);
+        // Simple turret behavior: aim at target with shot leading and randomness
+        let targetX = nearestEnemy.x;
+        let targetY = nearestEnemy.y;
+        
+        // Calculate shot leading if enabled
+        if (GAME_CONFIG.AI_SHOT_LEADING_ENABLED) {
+            // Calculate target velocity from position changes
+            const frameTime = deltaTime || 16; // Default to 16ms (60fps)
+            tank.aiTargetVelocityX = (nearestEnemy.x - tank.aiLastTargetX) / frameTime;
+            tank.aiTargetVelocityY = (nearestEnemy.y - tank.aiLastTargetY) / frameTime;
             
-            // Rotate turret toward target
-            if (Math.abs(angleDiff) > 0.1) {
-                if (angleDiff > 0) {
-                    tank.turretAngle += tank.turretRotationSpeed;
-                } else {
-                    tank.turretAngle -= tank.turretRotationSpeed;
+            // Calculate time for bullet to reach target
+            const distanceToTarget = Math.sqrt((nearestEnemy.x - tank.x) ** 2 + (nearestEnemy.y - tank.y) ** 2);
+            const bulletTravelTime = distanceToTarget / GAME_CONFIG.BULLET_SPEED;
+            
+            // Predict target position when bullet arrives
+            const leadFactor = GAME_CONFIG.AI_SHOT_LEADING_FACTOR;
+            targetX = nearestEnemy.x + tank.aiTargetVelocityX * bulletTravelTime * leadFactor;
+            targetY = nearestEnemy.y + tank.aiTargetVelocityY * bulletTravelTime * leadFactor;
+            
+            // Update last known positions
+            tank.aiLastTargetX = nearestEnemy.x;
+            tank.aiLastTargetY = nearestEnemy.y;
+        }
+        
+        const angleToTarget = Math.atan2(targetY - tank.y, targetX - tank.x);
+        
+        // Add some randomness to the target angle
+        const randomOffset = (Math.random() - 0.5) * GAME_CONFIG.AI_AIMING_RANDOMNESS;
+        const targetAngle = angleToTarget + randomOffset;
+        
+        const angleDiff = this.normalizeAngle(targetAngle - tank.turretAngle);
+        
+        // Rotate turret toward target (with randomness)
+        if (Math.abs(angleDiff) > 0.1) {
+            if (angleDiff > 0) {
+                tank.turretAngle += tank.turretRotationSpeed;
+            } else {
+                tank.turretAngle -= tank.turretRotationSpeed;
+            }
+        }
+        
+        // Shoot when aimed (within 0.2 radians)
+        if (Math.abs(angleDiff) < 0.2) {
+            if (Date.now() - tank.lastShot > GAME_CONFIG.SHOOT_COOLDOWN) {
+                this.shootBullet(tank);
+                tank.lastShot = Date.now();
+                
+                // Play shoot sound for AI
+                if (window.audioSystem) {
+                    window.audioSystem.shoot();
                 }
             }
-            
-            // Shoot when aimed and in range (same rate as players)
-            if (Math.abs(angleDiff) < 0.2 && distanceToEnemy < 150) {
-                if (Date.now() - tank.lastShot > GAME_CONFIG.SHOOT_COOLDOWN) {
-                    this.shootBullet(tank);
-                    tank.lastShot = Date.now();
-                    
-                    // Play shoot sound for AI
-                    if (window.audioSystem) {
-                        window.audioSystem.shoot();
-                    }
-                }
-            }
-        } else {
-            // If target not in FOV, rotate turret to search
-            tank.turretAngle += tank.turretRotationSpeed * 0.3;
         }
     }
 
