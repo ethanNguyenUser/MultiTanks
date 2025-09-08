@@ -16,10 +16,10 @@ const GAME_MODES = {
 // =============================================================================
 const GAME_CONFIG = {
     // Player settings
-    MIN_PLAYERS: 1,
+    MIN_PLAYERS: 0,
     MAX_PLAYERS: 4,
     MIN_AI_BOTS: 0,
-    MAX_AI_BOTS: 6,
+    MAX_AI_BOTS: 8,
     MAX_TOTAL_TANKS: 8, // Maximum total tanks (players + AI)
     
     // Map settings
@@ -56,11 +56,11 @@ const GAME_CONFIG = {
     // Team settings
     TEAM_COLORS: {
         RED: '#ff4444',
-        BLUE: '#6666ff'
+        BLUE: '#9999ff'
     },
     
     // Powerup settings
-    POWERUP_DURATION: 10000, // 10 seconds in milliseconds
+    POWERUP_DURATION: 15000, // 15 seconds in milliseconds
     POWERUP_SPAWN_INTERVAL_MIN: 1000, // 1 seconds
     POWERUP_SPAWN_INTERVAL_MAX: 3000, // 3 seconds
     POWERUP_CHASE_DISTANCE: 300, // Distance AIs will chase powerups

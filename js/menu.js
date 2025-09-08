@@ -22,6 +22,12 @@ class MenuSystem {
         this.createMenuHTML();
         this.setupEventListeners();
         this.updateMIDIStatus();
+        // Set default dropdown selections (1 player, 3 bots)
+        const playerCountSelect = document.getElementById('playerCount');
+        const aiBotCountSelect = document.getElementById('aiBotCount');
+        if (playerCountSelect) playerCountSelect.value = String(this.selectedPlayers);
+        if (aiBotCountSelect) aiBotCountSelect.value = String(this.selectedAIBots);
+        this.updateStartButton();
         // Defer menu music until first user gesture (autoplay policy)
         const startMenuMusicOnce = async () => {
             if (!window.audioSystem) return;
@@ -71,6 +77,7 @@ class MenuSystem {
                             <div class="player-selector">
                                 <label for="playerCount">Number of Players:</label>
                                 <select id="playerCount" class="player-select">
+                                    <option value="0">0 Players</option>
                                     <option value="1">1 Player</option>
                                     <option value="2">2 Players</option>
                                     <option value="3">3 Players</option>
@@ -84,10 +91,12 @@ class MenuSystem {
                                     <option value="0">0 AI Bots</option>
                                     <option value="1">1 AI Bot</option>
                                     <option value="2">2 AI Bots</option>
-                                    <option value="3" selected>3 AI Bots</option>
+                                    <option value="3">3 AI Bots</option>
                                     <option value="4">4 AI Bots</option>
                                     <option value="5">5 AI Bots</option>
                                     <option value="6">6 AI Bots</option>
+                                    <option value="7">7 AI Bots</option>
+                                    <option value="8">8 AI Bots</option>
                                 </select>
                             </div>
                         </div>
@@ -237,7 +246,9 @@ class MenuSystem {
      */
     updateStartButton() {
         const startBtn = document.getElementById('startGameBtn');
-        startBtn.disabled = !this.midiConnected;
+        // Allow starting without MIDI when there are 0 human players
+        const canStartWithoutMidi = this.selectedPlayers === 0;
+        startBtn.disabled = !(this.midiConnected || canStartWithoutMidi);
     }
     
     /**
@@ -248,47 +259,28 @@ class MenuSystem {
         const playerCountSelect = document.getElementById('playerCount');
         const aiBotCountSelect = document.getElementById('aiBotCount');
         
-        if (this.selectedGameMode === GAME_MODES.TDM) {
-            // For TDM, ensure even number of players for balanced teams
-            playerCountSelect.innerHTML = `
-                <option value="2">2 Players</option>
-                <option value="4">4 Players</option>
-            `;
-            playerCountSelect.value = this.selectedPlayers >= 2 ? this.selectedPlayers : '2';
-            this.selectedPlayers = parseInt(playerCountSelect.value);
-            
-            // Adjust AI bot options for TDM
-            aiBotCountSelect.innerHTML = `
-                <option value="0">0 AI Bots</option>
-                <option value="2">2 AI Bots</option>
-                <option value="4">4 AI Bots</option>
-                <option value="6">6 AI Bots</option>
-            `;
-            if (this.selectedAIBots % 2 !== 0) {
-                this.selectedAIBots = Math.max(0, this.selectedAIBots - 1);
-            }
-            aiBotCountSelect.value = this.selectedAIBots;
-        } else {
-            // For FFA, restore normal options
-            playerCountSelect.innerHTML = `
-                <option value="1">1 Player</option>
-                <option value="2">2 Players</option>
-                <option value="3">3 Players</option>
-                <option value="4">4 Players</option>
-            `;
-            playerCountSelect.value = this.selectedPlayers;
-            
-            aiBotCountSelect.innerHTML = `
-                <option value="0">0 AI Bots</option>
-                <option value="1">1 AI Bot</option>
-                <option value="2">2 AI Bots</option>
-                <option value="3" selected>3 AI Bots</option>
-                <option value="4">4 AI Bots</option>
-                <option value="5">5 AI Bots</option>
-                <option value="6">6 AI Bots</option>
-            `;
-            aiBotCountSelect.value = this.selectedAIBots;
-        }
+        // Both modes: allow 0–4 players and 0–8 bots, uneven teams allowed
+        playerCountSelect.innerHTML = `
+            <option value="0">0 Players</option>
+            <option value="1">1 Player</option>
+            <option value="2">2 Players</option>
+            <option value="3">3 Players</option>
+            <option value="4">4 Players</option>
+        `;
+        playerCountSelect.value = this.selectedPlayers;
+        
+        aiBotCountSelect.innerHTML = `
+            <option value="0">0 AI Bots</option>
+            <option value="1">1 AI Bot</option>
+            <option value="2">2 AI Bots</option>
+            <option value="3">3 AI Bots</option>
+            <option value="4">4 AI Bots</option>
+            <option value="5">5 AI Bots</option>
+            <option value="6">6 AI Bots</option>
+            <option value="7">7 AI Bots</option>
+            <option value="8">8 AI Bots</option>
+        `;
+        aiBotCountSelect.value = this.selectedAIBots;
     }
 
     /**

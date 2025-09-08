@@ -37,6 +37,11 @@ class MultiTanksGame {
         
         // Input tracking
         this.activeControls = new Map(); // Track which controls are currently pressed
+        
+        // Helper modules
+        this.renderer = null;
+        this.powerupsManager = null;
+        this.collisions = null;
     }
 
     /**
@@ -82,6 +87,11 @@ class MultiTanksGame {
         
         // Initialize AI behavior system
         window.aiBehavior = new AIBehavior(this);
+        
+        // Initialize helper modules
+        this.renderer = new GameRenderer(this);
+        this.powerupsManager = new GamePowerups(this);
+        this.collisions = new GameCollisions(this);
         
         // Start game loop
         this.gameState = GAME_STATES.PLAYING;
@@ -380,7 +390,8 @@ class MultiTanksGame {
             deathTime: 0,
             killedBy: null,
             killsList: [],
-            killedByList: []
+            killedByList: [],
+            powerupsCollected: 0
         });
         
         return tank;
@@ -528,48 +539,9 @@ class MultiTanksGame {
      * @param {number} deltaTime - Time since last frame
      */
     updatePowerups(deltaTime) {
-        // Update powerup timers for all tanks
-        this.tanks.forEach(tank => {
-            if (!tank.isAlive) return;
-            
-            Object.keys(tank.powerups).forEach(powerupType => {
-                const powerupArray = tank.powerups[powerupType];
-                // Update each powerup instance in the array
-                for (let i = powerupArray.length - 1; i >= 0; i--) {
-                    powerupArray[i] -= deltaTime;
-                    if (powerupArray[i] <= 0) {
-                        powerupArray.splice(i, 1); // Remove expired powerup
-                    }
-                }
-            });
-        });
-        
-        // Spawn new powerups
-        this.powerupSpawnTimer -= deltaTime;
-        if (this.powerupSpawnTimer <= 0) {
-            this.spawnPowerup();
-            this.powerupSpawnTimer = GAME_CONFIG.POWERUP_SPAWN_INTERVAL_MIN + 
-                Math.random() * (GAME_CONFIG.POWERUP_SPAWN_INTERVAL_MAX - GAME_CONFIG.POWERUP_SPAWN_INTERVAL_MIN);
+        if (this.powerupsManager) {
+            this.powerupsManager.update(deltaTime);
         }
-        
-        // Update existing powerups
-        this.powerups.forEach((powerup, index) => {
-            if (!powerup.alive) {
-                this.powerups.splice(index, 1);
-                return;
-            }
-            
-            // Check collision with tanks
-            this.tanks.forEach(tank => {
-                if (!tank.isAlive) return;
-                
-                const distance = Math.sqrt((powerup.x - tank.x) ** 2 + (powerup.y - tank.y) ** 2);
-                if (distance < tank.size / 2 + powerup.size / 2) {
-                    this.applyPowerup(tank, powerup.type);
-                    powerup.alive = false;
-                }
-            });
-        });
     }
     
     /**
@@ -716,7 +688,11 @@ class MultiTanksGame {
             tank.speed = originalSpeed;
             
             // Keep tank within map bounds
-            this.constrainTankToMap(tank);
+            if (this.collisions) {
+                this.collisions.constrainTankToMap(tank);
+            } else {
+                this.constrainTankToMap(tank);
+            }
         });
     }
 
@@ -764,7 +740,11 @@ class MultiTanksGame {
             const newY = tank.y + moveY * tank.speed;
             
             // Use sliding movement system
-            this.moveTankWithSliding(tank, newX, newY, moveAngle);
+            if (this.collisions) {
+                this.collisions.moveTankWithSliding(tank, newX, newY, moveAngle);
+            } else {
+                this.moveTankWithSliding(tank, newX, newY, moveAngle);
+            }
         }
         
         // Handle turret rotation
@@ -804,49 +784,8 @@ class MultiTanksGame {
      * @param {number} moveAngle - Movement angle
      */
     moveTankWithSliding(tank, newX, newY, moveAngle) {
-        // Check if direct movement is possible
-        if (!this.checkTankObstacleCollision(tank, newX, newY)) {
-            tank.x = newX;
-            tank.y = newY;
-            tank.angle = moveAngle;
-            return;
-        }
-
-        // Try sliding along X axis only
-        if (!this.checkTankObstacleCollision(tank, newX, tank.y)) {
-            tank.x = newX;
-            tank.angle = moveAngle;
-            return;
-        }
-
-        // Try sliding along Y axis only
-        if (!this.checkTankObstacleCollision(tank, tank.x, newY)) {
-            tank.y = newY;
-            tank.angle = moveAngle;
-            return;
-        }
-
-        // Try sliding perpendicular to movement direction
-        const perpendicularAngle = moveAngle + Math.PI / 2;
-        const slideX = tank.x + Math.cos(perpendicularAngle) * tank.speed * GAME_CONFIG.AI_SLIDE_SPEED_MULTIPLIER;
-        const slideY = tank.y + Math.sin(perpendicularAngle) * tank.speed * GAME_CONFIG.AI_SLIDE_SPEED_MULTIPLIER;
-        
-        if (!this.checkTankObstacleCollision(tank, slideX, slideY)) {
-            tank.x = slideX;
-            tank.y = slideY;
-            tank.angle = perpendicularAngle;
-            return;
-        }
-
-        // Try sliding in opposite perpendicular direction
-        const oppositePerpendicularAngle = moveAngle - Math.PI / 2;
-        const slideX2 = tank.x + Math.cos(oppositePerpendicularAngle) * tank.speed * GAME_CONFIG.AI_SLIDE_SPEED_MULTIPLIER;
-        const slideY2 = tank.y + Math.sin(oppositePerpendicularAngle) * tank.speed * GAME_CONFIG.AI_SLIDE_SPEED_MULTIPLIER;
-        
-        if (!this.checkTankObstacleCollision(tank, slideX2, slideY2)) {
-            tank.x = slideX2;
-            tank.y = slideY2;
-            tank.angle = oppositePerpendicularAngle;
+        if (this.collisions) {
+            this.collisions.moveTankWithSliding(tank, newX, newY, moveAngle);
         }
     }
 
@@ -868,10 +807,34 @@ class MultiTanksGame {
         this.bullets = this.bullets.filter(bullet => {
             bullet.x += Math.cos(bullet.angle) * bullet.speed;
             bullet.y += Math.sin(bullet.angle) * bullet.speed;
-            
-            // Remove bullets that are off-screen
-            return bullet.x >= 0 && bullet.x <= GAME_CONFIG.MAP_WIDTH &&
-                   bullet.y >= 0 && bullet.y <= GAME_CONFIG.MAP_HEIGHT;
+
+            let bounced = false;
+            const radius = bullet.size / 2;
+
+            // Left or right walls
+            if (bullet.x < radius || bullet.x > GAME_CONFIG.MAP_WIDTH - radius) {
+                if (bullet.bounces > 0) {
+                    bullet.angle = Math.PI - bullet.angle;
+                    bullet.bounces--;
+                    bounced = true;
+                    bullet.x = Math.max(radius, Math.min(GAME_CONFIG.MAP_WIDTH - radius, bullet.x));
+                } else {
+                    return false; // remove
+                }
+            }
+
+            // Top or bottom walls
+            if (bullet.y < radius || bullet.y > GAME_CONFIG.MAP_HEIGHT - radius) {
+                if (bullet.bounces > 0 || bounced) { // allow bounce if already bounced this step on X
+                    if (!bounced) bullet.bounces--;
+                    bullet.angle = -bullet.angle;
+                    bullet.y = Math.max(radius, Math.min(GAME_CONFIG.MAP_HEIGHT - radius, bullet.y));
+                } else {
+                    return false; // remove
+                }
+            }
+
+            return true;
         });
     }
 
@@ -950,7 +913,7 @@ class MultiTanksGame {
         `;
         
         overlay.innerHTML = `
-            <div style="background: #333; padding: 30px; border-radius: 10px; max-width: 800px; max-height: 80vh; overflow-y: auto;">
+            <div style="background: #333; padding: 30px; border-radius: 10px; max-width: 1200px; max-height: 80vh; overflow-y: auto;">
                 <h2 style="text-align: center; margin-bottom: 20px;">Game Statistics</h2>
                 ${statsHTML}
                 <div style="text-align: center; margin-top: 20px;">
@@ -986,6 +949,10 @@ class MultiTanksGame {
                         <th style="padding: 10px; border: 1px solid #666;">Shots Fired</th>
                         <th style="padding: 10px; border: 1px solid #666;">Shots Hit</th>
                         <th style="padding: 10px; border: 1px solid #666;">Accuracy</th>
+                        <th style="padding: 10px; border: 1px solid #666;">Players Killed</th>
+                        <th style="padding: 10px; border: 1px solid #666;">Killed By</th>
+                        <th style="padding: 10px; border: 1px solid #666;">Final Health</th>
+                        <th style="padding: 10px; border: 1px solid #666;">Powerups</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -995,6 +962,7 @@ class MultiTanksGame {
             const accuracy = stats.shotsFired > 0 ? Math.round((stats.shotsHit / stats.shotsFired) * 100) : 0;
             const timeAlivePercent = Math.round((stats.timeAlive / gameDuration) * 100);
             
+            const tank = this.tanks.find(t => t.id === playerId);
             html += `
                 <tr>
                     <td style="padding: 8px; border: 1px solid #666;">${stats.name}</td>
@@ -1004,6 +972,10 @@ class MultiTanksGame {
                     <td style="padding: 8px; border: 1px solid #666;">${stats.shotsFired}</td>
                     <td style="padding: 8px; border: 1px solid #666;">${stats.shotsHit}</td>
                     <td style="padding: 8px; border: 1px solid #666;">${accuracy}%</td>
+                    <td style="padding: 8px; border: 1px solid #666;">${(stats.killsList || []).join(', ') || '—'}</td>
+                    <td style="padding: 8px; border: 1px solid #666;">${stats.killedBy || '—'}</td>
+                    <td style="padding: 8px; border: 1px solid #666;">${tank ? tank.health : 0}</td>
+                    <td style="padding: 8px; border: 1px solid #666;">${stats.powerupsCollected || 0}</td>
                 </tr>
             `;
         });
@@ -1272,16 +1244,10 @@ class MultiTanksGame {
      * @returns {boolean} True if collision detected
      */
     checkTankObstacleCollision(tank, newX, newY) {
-        return this.obstacles.some(obstacle => {
-            if (obstacle.type === 'rock') {
-                const distance = Math.sqrt((newX - obstacle.x) ** 2 + (newY - obstacle.y) ** 2);
-                return distance < obstacle.radius + tank.size / 2;
-            } else {
-                const dx = Math.abs(newX - obstacle.x);
-                const dy = Math.abs(newY - obstacle.y);
-                return dx < (obstacle.width / 2 + tank.size / 2) && dy < (obstacle.height / 2 + tank.size / 2);
-            }
-        });
+        if (this.collisions) {
+            return this.collisions.checkTankObstacleCollision(tank, newX, newY);
+        }
+        return false;
     }
 
     /**
@@ -1289,39 +1255,18 @@ class MultiTanksGame {
      * @param {Object} tank - Tank to constrain
      */
     constrainTankToMap(tank) {
-        tank.x = Math.max(tank.size / 2, Math.min(GAME_CONFIG.MAP_WIDTH - tank.size / 2, tank.x));
-        tank.y = Math.max(tank.size / 2, Math.min(GAME_CONFIG.MAP_HEIGHT - tank.size / 2, tank.y));
+        if (this.collisions) {
+            this.collisions.constrainTankToMap(tank);
+        }
     }
 
     /**
      * Render the game
      */
     render() {
-        if (!this.ctx) {
-            return;
+        if (this.renderer) {
+            this.renderer.render();
         }
-        
-        // Clear canvas with map color
-        this.ctx.fillStyle = GAME_CONFIG.MAP_COLOR;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        
-        // Render grid background
-        this.renderGrid();
-        
-        // Render obstacles
-        this.renderObstacles();
-        
-        // Render tanks
-        this.renderTanks();
-        
-        // Render bullets
-        this.renderBullets();
-        
-        // Render powerups
-        this.renderPowerups();
-        
-        // Render UI
-        this.renderUI();
     }
 
     /**
