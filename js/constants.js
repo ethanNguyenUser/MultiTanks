@@ -9,8 +9,10 @@
 const GAME_CONFIG = {
     // Player settings
     MIN_PLAYERS: 1,
-    MAX_PLAYERS: 7,
-    TOTAL_TANKS: 8, // Always 8 tanks total (players + AI)
+    MAX_PLAYERS: 4,
+    MIN_AI_BOTS: 0,
+    MAX_AI_BOTS: 6,
+    MAX_TOTAL_TANKS: 8, // Maximum total tanks (players + AI)
     
     // Map settings
     MAP_COLOR: '#2d5016', // Dark green
@@ -61,11 +63,11 @@ const GAME_CONFIG = {
 // MIDI NOTE MAPPINGS
 // =============================================================================
 // Based on your keyboard: A=21, A=33, A=45, A=57, A=69, A=81, A=93
-// Each octave has 12 semitones, so we map each octave to a player (1-7)
+// Each octave has 12 semitones, so we map each octave to a player (1-4)
 
 const MIDI_CONFIG = {
-    // Base note numbers for each octave (A notes)
-    OCTAVE_BASES: [21, 33, 45, 57, 69, 81, 93],
+    // Base note numbers for each octave (A notes) - only 4 players now
+    OCTAVE_BASES: [21, 45, 69, 93],
     
     // Note offsets from A for each control
     NOTE_OFFSETS: {
@@ -115,7 +117,7 @@ const GAME_STATES = {
 
 /**
  * Get the note number for a specific player and control
- * @param {number} playerIndex - Player index (0-6)
+ * @param {number} playerIndex - Player index (0-3)
  * @param {string} control - Control type ('A_SHARP', 'A', 'B', 'C', 'C_SHARP', 'D', 'D_SHARP')
  * @returns {number} MIDI note number
  */
@@ -137,7 +139,7 @@ function getNoteForPlayer(playerIndex, control) {
 /**
  * Get player index from MIDI note number
  * @param {number} noteNumber - MIDI note number
- * @returns {number|null} Player index (0-6) or null if not a valid player note
+ * @returns {number|null} Player index (0-3) or null if not a valid player note
  */
 function getPlayerFromNote(noteNumber) {
     for (let i = 0; i < MIDI_CONFIG.OCTAVE_BASES.length; i++) {

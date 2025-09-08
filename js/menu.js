@@ -7,6 +7,7 @@ class MenuSystem {
     constructor() {
         this.currentScreen = 'main'; // 'main', 'playerSelect', 'game'
         this.selectedPlayers = 1;
+        this.selectedAIBots = 3;
         this.midiConnected = false;
         this.menuElement = null;
         this.gameElement = null;
@@ -51,9 +52,19 @@ class MenuSystem {
                                     <option value="2">2 Players</option>
                                     <option value="3">3 Players</option>
                                     <option value="4">4 Players</option>
-                                    <option value="5">5 Players</option>
-                                    <option value="6">6 Players</option>
-                                    <option value="7">7 Players</option>
+                                </select>
+                            </div>
+                            
+                            <div class="player-selector">
+                                <label for="aiBotCount">Number of AI Bots:</label>
+                                <select id="aiBotCount" class="player-select">
+                                    <option value="0">0 AI Bots</option>
+                                    <option value="1">1 AI Bot</option>
+                                    <option value="2">2 AI Bots</option>
+                                    <option value="3" selected>3 AI Bots</option>
+                                    <option value="4">4 AI Bots</option>
+                                    <option value="5">5 AI Bots</option>
+                                    <option value="6">6 AI Bots</option>
                                 </select>
                             </div>
                         </div>
@@ -115,6 +126,12 @@ class MenuSystem {
         // Player count selection
         document.getElementById('playerCount').addEventListener('change', (e) => {
             this.selectedPlayers = parseInt(e.target.value);
+            this.updateStartButton();
+        });
+        
+        // AI bot count selection
+        document.getElementById('aiBotCount').addEventListener('change', (e) => {
+            this.selectedAIBots = parseInt(e.target.value);
             this.updateStartButton();
         });
         
@@ -283,7 +300,7 @@ class MenuSystem {
         
         // Initialize game
         window.game = new MultiTanksGame();
-        await window.game.initialize(this.gameElement, this.selectedPlayers);
+        await window.game.initialize(this.gameElement, this.selectedPlayers, this.selectedAIBots);
         
         this.currentScreen = 'game';
     }

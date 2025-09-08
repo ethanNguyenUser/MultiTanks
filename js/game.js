@@ -27,12 +27,20 @@ class MultiTanksGame {
     /**
      * Initialize the game
      * @param {HTMLCanvasElement} canvas - Canvas element
-     * @param {number} numPlayers - Number of human players (1-7)
+     * @param {number} numPlayers - Number of human players (1-4)
+     * @param {number} numAIBots - Number of AI bots (0-6)
      */
-    async initialize(canvas, numPlayers = 1) {
+    async initialize(canvas, numPlayers = 1, numAIBots = 3) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.numPlayers = Math.max(GAME_CONFIG.MIN_PLAYERS, Math.min(GAME_CONFIG.MAX_PLAYERS, numPlayers));
+        this.numAIBots = Math.max(GAME_CONFIG.MIN_AI_BOTS, Math.min(GAME_CONFIG.MAX_AI_BOTS, numAIBots));
+        
+        // Ensure total doesn't exceed maximum
+        const totalTanks = this.numPlayers + this.numAIBots;
+        if (totalTanks > GAME_CONFIG.MAX_TOTAL_TANKS) {
+            this.numAIBots = GAME_CONFIG.MAX_TOTAL_TANKS - this.numPlayers;
+        }
         
         // Set canvas size - use actual window dimensions
         const actualWidth = window.innerWidth;
@@ -49,6 +57,9 @@ class MultiTanksGame {
         this.initializeTanks();
         this.generateObstacles();
         this.setupMIDIInput();
+        
+        // Initialize AI behavior system
+        window.aiBehavior = new AIBehavior(this);
         
         // Start game loop
         this.gameState = GAME_STATES.PLAYING;
@@ -81,7 +92,7 @@ class MultiTanksGame {
         }
         
         // Create AI bots
-        for (let i = this.numPlayers; i < GAME_CONFIG.TOTAL_TANKS; i++) {
+        for (let i = this.numPlayers; i < this.numPlayers + this.numAIBots; i++) {
             const tank = this.createTank(spawnPositions[i], i, true); // true = AI bot
             this.tanks.push(tank);
             this.aiBots.push(tank);
@@ -97,25 +108,58 @@ class MultiTanksGame {
         const edge = GAME_CONFIG.SPAWN_DISTANCE_FROM_EDGE;
         const width = GAME_CONFIG.MAP_WIDTH;
         const height = GAME_CONFIG.MAP_HEIGHT;
+        const totalTanks = this.numPlayers + this.numAIBots;
         
-        // 8 positions: 4 corners + 4 midpoints
-        const cornerPositions = [
-            { x: edge, y: edge }, // Top-left
-            { x: width - edge, y: edge }, // Top-right
-            { x: width - edge, y: height - edge }, // Bottom-right
-            { x: edge, y: height - edge }, // Bottom-left
-        ];
+        // For small numbers of tanks, use specific corner/edge positions
+        if (totalTanks <= 4) {
+            const cornerPositions = [
+                { x: edge, y: edge }, // Top-left
+                { x: width - edge, y: edge }, // Top-right
+                { x: width - edge, y: height - edge }, // Bottom-right
+                { x: edge, y: height - edge }, // Bottom-left
+            ];
+            
+            // Use corners first, then add edge positions if needed
+            for (let i = 0; i < totalTanks; i++) {
+                positions.push(cornerPositions[i]);
+            }
+            
+            return positions;
+        }
         
-        const midpointPositions = [
-            { x: width / 2, y: edge }, // Top
-            { x: width - edge, y: height / 2 }, // Right
-            { x: width / 2, y: height - edge }, // Bottom
-            { x: edge, y: height / 2 }, // Left
-        ];
+        // For more tanks, distribute around perimeter
         
-        // Combine and shuffle positions
-        const allPositions = [...cornerPositions, ...midpointPositions];
-        return this.shuffleArray(allPositions);
+        // Calculate the actual perimeter path
+        const perimeterPoints = [];
+        
+        // Top edge (left to right)
+        for (let x = edge; x <= width - edge; x += 20) {
+            perimeterPoints.push({ x, y: edge });
+        }
+        
+        // Right edge (top to bottom)
+        for (let y = edge; y <= height - edge; y += 20) {
+            perimeterPoints.push({ x: width - edge, y });
+        }
+        
+        // Bottom edge (right to left)
+        for (let x = width - edge; x >= edge; x -= 20) {
+            perimeterPoints.push({ x, y: height - edge });
+        }
+        
+        // Left edge (bottom to top)
+        for (let y = height - edge; y >= edge; y -= 20) {
+            perimeterPoints.push({ x: edge, y });
+        }
+        
+        // Select equidistant points from the perimeter
+        const step = Math.floor(perimeterPoints.length / totalTanks);
+        for (let i = 0; i < totalTanks; i++) {
+            const index = (i * step) % perimeterPoints.length;
+            positions.push(perimeterPoints[index]);
+        }
+        
+        return positions;
     }
 
     /**
@@ -302,7 +346,7 @@ class MultiTanksGame {
             if (!tank.isAlive) return;
             
             if (tank.isAI) {
-                this.updateAITank(tank, deltaTime);
+                window.aiBehavior.updateAITank(tank, deltaTime);
             } else {
                 this.updatePlayerTank(tank, deltaTime);
             }
@@ -379,40 +423,6 @@ class MultiTanksGame {
         }
     }
 
-    /**
-     * Find the nearest enemy to an AI tank (players or other AIs)
-     * @param {Object} aiTank - AI tank looking for target
-     * @returns {Object|null} Nearest enemy tank or null
-     */
-    findNearestEnemy(aiTank) {
-        let nearestEnemy = null;
-        let nearestDistance = Infinity;
-        
-        // Check all tanks except the current AI tank
-        this.tanks.forEach(tank => {
-            if (!tank.isAlive || tank.id === aiTank.id) return;
-            
-            const distance = Math.sqrt((tank.x - aiTank.x) ** 2 + (tank.y - aiTank.y) ** 2);
-            if (distance < nearestDistance) {
-                nearestDistance = distance;
-                nearestEnemy = tank;
-            }
-        });
-        
-        return nearestEnemy;
-    }
-
-
-    /**
-     * Normalize angle to [-π, π] range
-     * @param {number} angle - Angle to normalize
-     * @returns {number} Normalized angle
-     */
-    normalizeAngle(angle) {
-        while (angle > Math.PI) angle -= 2 * Math.PI;
-        while (angle < -Math.PI) angle += 2 * Math.PI;
-        return angle;
-    }
 
 
     /**
@@ -469,121 +479,6 @@ class MultiTanksGame {
         }
     }
 
-    /**
-     * Update AI tank behavior
-     * @param {Object} tank - AI tank to update
-     * @param {number} deltaTime - Time since last frame
-     */
-    updateAITank(tank, deltaTime) {
-        // Find nearest enemy (player or other AI)
-        const nearestEnemy = this.findNearestEnemy(tank);
-        if (!nearestEnemy) return;
-        
-        const distanceToEnemy = Math.sqrt((nearestEnemy.x - tank.x) ** 2 + (nearestEnemy.y - tank.y) ** 2);
-        
-        // Simple movement: approach until close enough, then orbit
-        if (distanceToEnemy > GAME_CONFIG.AI_APPROACH_DISTANCE) {
-            // Approach the target
-            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
-            const newX = tank.x + Math.cos(angleToEnemy) * tank.speed;
-            const newY = tank.y + Math.sin(angleToEnemy) * tank.speed;
-            
-            this.moveTankWithSliding(tank, newX, newY, angleToEnemy);
-        } else if (distanceToEnemy < GAME_CONFIG.AI_MIN_ORBIT_DISTANCE || Date.now() < tank.aiRetreatEndTime) {
-            // Too close or still in retreat mode! Move away from target
-            if (distanceToEnemy < GAME_CONFIG.AI_MIN_ORBIT_DISTANCE) {
-                // Start retreat timer
-                tank.aiRetreatEndTime = Date.now() + GAME_CONFIG.AI_RETREAT_DURATION;
-            }
-            
-            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
-            const angleAway = angleToEnemy + Math.PI; // Opposite direction
-            const newX = tank.x + Math.cos(angleAway) * tank.speed;
-            const newY = tank.y + Math.sin(angleAway) * tank.speed;
-            
-            this.moveTankWithSliding(tank, newX, newY, angleAway);
-        } else {
-            // Good distance for orbiting
-            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
-            
-            // Randomly change orbit direction occasionally
-            if (Math.random() < GAME_CONFIG.AI_ORBIT_DIRECTION_CHANGE_CHANCE) {
-                tank.aiOrbitDirection *= -1; // Switch direction
-            }
-            
-            // Update orbit angle
-            tank.aiOrbitAngle += tank.aiOrbitDirection * GAME_CONFIG.AI_ORBIT_SPEED;
-            
-            // Calculate orbit position (perpendicular to line to enemy)
-            const orbitAngle = angleToEnemy + Math.PI / 2 + tank.aiOrbitAngle;
-            const orbitDistance = GAME_CONFIG.AI_ORBIT_DISTANCE;
-            
-            const targetX = nearestEnemy.x + Math.cos(orbitAngle) * orbitDistance;
-            const targetY = nearestEnemy.y + Math.sin(orbitAngle) * orbitDistance;
-            
-            // Move toward orbit position
-            const moveAngle = Math.atan2(targetY - tank.y, targetX - tank.x);
-            const newX = tank.x + Math.cos(moveAngle) * tank.speed;
-            const newY = tank.y + Math.sin(moveAngle) * tank.speed;
-            
-            this.moveTankWithSliding(tank, newX, newY, moveAngle);
-        }
-        
-        // Simple turret behavior: aim at target with shot leading and randomness
-        let targetX = nearestEnemy.x;
-        let targetY = nearestEnemy.y;
-        
-        // Calculate shot leading if enabled
-        if (GAME_CONFIG.AI_SHOT_LEADING_ENABLED) {
-            // Calculate target velocity from position changes
-            const frameTime = deltaTime || 16; // Default to 16ms (60fps)
-            tank.aiTargetVelocityX = (nearestEnemy.x - tank.aiLastTargetX) / frameTime;
-            tank.aiTargetVelocityY = (nearestEnemy.y - tank.aiLastTargetY) / frameTime;
-            
-            // Calculate time for bullet to reach target
-            const distanceToTarget = Math.sqrt((nearestEnemy.x - tank.x) ** 2 + (nearestEnemy.y - tank.y) ** 2);
-            const bulletTravelTime = distanceToTarget / GAME_CONFIG.BULLET_SPEED;
-            
-            // Predict target position when bullet arrives
-            const leadFactor = GAME_CONFIG.AI_SHOT_LEADING_FACTOR;
-            targetX = nearestEnemy.x + tank.aiTargetVelocityX * bulletTravelTime * leadFactor;
-            targetY = nearestEnemy.y + tank.aiTargetVelocityY * bulletTravelTime * leadFactor;
-            
-            // Update last known positions
-            tank.aiLastTargetX = nearestEnemy.x;
-            tank.aiLastTargetY = nearestEnemy.y;
-        }
-        
-        const angleToTarget = Math.atan2(targetY - tank.y, targetX - tank.x);
-        
-        // Add some randomness to the target angle
-        const randomOffset = (Math.random() - 0.5) * GAME_CONFIG.AI_AIMING_RANDOMNESS;
-        const targetAngle = angleToTarget + randomOffset;
-        
-        const angleDiff = this.normalizeAngle(targetAngle - tank.turretAngle);
-        
-        // Rotate turret toward target (with randomness)
-        if (Math.abs(angleDiff) > 0.1) {
-            if (angleDiff > 0) {
-                tank.turretAngle += tank.turretRotationSpeed;
-            } else {
-                tank.turretAngle -= tank.turretRotationSpeed;
-            }
-        }
-        
-        // Shoot when aimed (within 0.2 radians)
-        if (Math.abs(angleDiff) < 0.2) {
-            if (Date.now() - tank.lastShot > GAME_CONFIG.SHOOT_COOLDOWN) {
-                this.shootBullet(tank);
-                tank.lastShot = Date.now();
-                
-                // Play shoot sound for AI
-                if (window.audioSystem) {
-                    window.audioSystem.shoot();
-                }
-            }
-        }
-    }
 
     /**
      * Update AI behavior
@@ -820,7 +715,7 @@ class MultiTanksGame {
         // Render player info
         this.ctx.fillStyle = '#ffffff';
         this.ctx.font = '16px Arial';
-        this.ctx.fillText(`Players: ${this.numPlayers} | AI: ${GAME_CONFIG.TOTAL_TANKS - this.numPlayers}`, 10, 25);
+        this.ctx.fillText(`Players: ${this.numPlayers} | AI: ${this.numAIBots}`, 10, 25);
         
         // Render alive tanks count
         const aliveTanks = this.tanks.filter(tank => tank.isAlive).length;
