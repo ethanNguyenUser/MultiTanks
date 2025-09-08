@@ -63,6 +63,9 @@ class MultiTanksGame {
         this.aiTeamDistribution = aiTeamDistribution;
         this.gameStartTime = Date.now();
         
+        // Resolve active game mode
+        this.mode = window.modeManager ? window.modeManager.getMode(this.gameMode) : null;
+        
         // Ensure total doesn't exceed maximum
         const totalTanks = this.numPlayers + this.numAIBots;
         if (totalTanks > GAME_CONFIG.MAX_TOTAL_TANKS) {
@@ -81,6 +84,9 @@ class MultiTanksGame {
         GAME_CONFIG.MAP_HEIGHT = actualHeight;
         
         // Initialize game objects
+        if (this.mode && this.mode.assignTeams) {
+            this.mode.assignTeams(this);
+        }
         this.initializeTanks();
         this.generateObstacles();
         this.setupMIDIInput();
@@ -100,7 +106,7 @@ class MultiTanksGame {
         
         // Start background music based on mode
         if (window.audioSystem) {
-            const track = this.gameMode === GAME_MODES.TDM ? 'tdm.mp3' : 'ffa.mp3';
+            const track = (this.mode && this.mode.musicTrack) ? this.mode.musicTrack(this) : (this.gameMode === GAME_MODES.TDM ? 'tdm.mp3' : 'ffa.mp3');
             window.audioSystem.playMusic(track, true);
             window.audioSystem.gameStart();
         }
@@ -114,8 +120,8 @@ class MultiTanksGame {
         this.players = [];
         this.aiBots = [];
         
-        // Calculate spawn positions around the map edges
-        const spawnPositions = this.calculateSpawnPositions();
+        // Calculate spawn positions via mode (or fallback)
+        const spawnPositions = this.mode && this.mode.calculateSpawnPositions ? this.mode.calculateSpawnPositions(this) : [];
         
         // Create human players
         for (let i = 0; i < this.numPlayers; i++) {
@@ -132,154 +138,7 @@ class MultiTanksGame {
         }
     }
 
-    /**
-     * Calculate spawn positions around map edges
-     * @returns {Array<Object>} Array of spawn positions
-     */
-    calculateSpawnPositions() {
-        const positions = [];
-        const edge = GAME_CONFIG.SPAWN_DISTANCE_FROM_EDGE;
-        const width = GAME_CONFIG.MAP_WIDTH;
-        const height = GAME_CONFIG.MAP_HEIGHT;
-        const totalTanks = this.numPlayers + this.numAIBots;
-        
-        if (this.gameMode === GAME_MODES.TDM) {
-            // TDM mode: Red team on left, Blue team on right
-            const redTanks = [];
-            const blueTanks = [];
-            
-            // Collect team assignments
-            for (let i = 0; i < this.numPlayers; i++) {
-                const team = this.teamAssignments[i] || (i % 2 === 0 ? 'red' : 'blue');
-                if (team === 'red') {
-                    redTanks.push(i);
-                } else {
-                    blueTanks.push(i);
-                }
-            }
-            
-            // Add AI tanks to teams
-            if (this.aiTeamDistribution) {
-                for (let i = 0; i < this.aiTeamDistribution.red; i++) {
-                    redTanks.push(this.numPlayers + i);
-                }
-                for (let i = 0; i < this.aiTeamDistribution.blue; i++) {
-                    blueTanks.push(this.numPlayers + this.aiTeamDistribution.red + i);
-                }
-            } else {
-                // Default AI distribution
-                const redAICount = Math.floor(this.numAIBots / 2);
-                const blueAICount = Math.ceil(this.numAIBots / 2);
-                for (let i = 0; i < redAICount; i++) {
-                    redTanks.push(this.numPlayers + i);
-                }
-                for (let i = 0; i < blueAICount; i++) {
-                    blueTanks.push(this.numPlayers + redAICount + i);
-                }
-            }
-            
-            // Generate positions for red team (left side)
-            const leftPositions = this.generateSidePositions('left', redTanks.length, edge, width, height);
-            redTanks.forEach((tankIndex, i) => {
-                positions[tankIndex] = leftPositions[i];
-            });
-            
-            // Generate positions for blue team (right side)
-            const rightPositions = this.generateSidePositions('right', blueTanks.length, edge, width, height);
-            blueTanks.forEach((tankIndex, i) => {
-                positions[tankIndex] = rightPositions[i];
-            });
-            
-            return positions;
-        } else {
-            // FFA mode: Use original logic
-            if (totalTanks <= 4) {
-                const cornerPositions = [
-                    { x: edge, y: edge }, // Top-left
-                    { x: width - edge, y: edge }, // Top-right
-                    { x: width - edge, y: height - edge }, // Bottom-right
-                    { x: edge, y: height - edge }, // Bottom-left
-                ];
-                
-                for (let i = 0; i < totalTanks; i++) {
-                    positions.push(cornerPositions[i]);
-                }
-                
-                return positions;
-            }
-            
-            // For more tanks, distribute around perimeter
-            const perimeterPoints = [];
-            
-            // Top edge (left to right)
-            for (let x = edge; x <= width - edge; x += 20) {
-                perimeterPoints.push({ x, y: edge });
-            }
-            
-            // Right edge (top to bottom)
-            for (let y = edge; y <= height - edge; y += 20) {
-                perimeterPoints.push({ x: width - edge, y });
-            }
-            
-            // Bottom edge (right to left)
-            for (let x = width - edge; x >= edge; x -= 20) {
-                perimeterPoints.push({ x, y: height - edge });
-            }
-            
-            // Left edge (bottom to top)
-            for (let y = height - edge; y >= edge; y -= 20) {
-                perimeterPoints.push({ x: edge, y });
-            }
-            
-            // Select equidistant points from the perimeter
-            const step = Math.floor(perimeterPoints.length / totalTanks);
-            for (let i = 0; i < totalTanks; i++) {
-                const index = (i * step) % perimeterPoints.length;
-                positions.push(perimeterPoints[index]);
-            }
-            
-            return positions;
-        }
-    }
     
-    /**
-     * Generate spawn positions for one side of the map
-     * @param {string} side - 'left' or 'right'
-     * @param {number} count - Number of tanks for this side
-     * @param {number} edge - Distance from edge
-     * @param {number} width - Map width
-     * @param {number} height - Map height
-     * @returns {Array<Object>} Array of positions
-     */
-    generateSidePositions(side, count, edge, width, height) {
-        const positions = [];
-        
-        if (side === 'left') {
-            // Left side positions
-            const leftX = edge;
-            const spacing = (height - 2 * edge) / Math.max(1, count - 1);
-            
-            for (let i = 0; i < count; i++) {
-                positions.push({
-                    x: leftX,
-                    y: edge + (i * spacing)
-                });
-            }
-        } else {
-            // Right side positions
-            const rightX = width - edge;
-            const spacing = (height - 2 * edge) / Math.max(1, count - 1);
-            
-            for (let i = 0; i < count; i++) {
-                positions.push({
-                    x: rightX,
-                    y: edge + (i * spacing)
-                });
-            }
-        }
-        
-        return positions;
-    }
 
     /**
      * Create a tank object
@@ -457,7 +316,9 @@ class MultiTanksGame {
      * @returns {boolean} True if collision detected
      */
     obstacleCollidesWithTanks(obstacle) {
-        const spawnPositions = this.calculateSpawnPositions();
+        const spawnPositions = (this.mode && this.mode.calculateSpawnPositions)
+            ? this.mode.calculateSpawnPositions(this)
+            : [];
         const minDistance = GAME_CONFIG.TANK_SIZE * 2;
         
         for (const pos of spawnPositions) {
@@ -842,20 +703,8 @@ class MultiTanksGame {
      * Check if game should end
      */
     checkGameEnd() {
-        if (this.gameMode === GAME_MODES.FFA) {
-            // FFA: Game ends when only one tank is alive
-            const aliveTanks = this.tanks.filter(tank => tank.isAlive);
-            if (aliveTanks.length <= 1) {
-                this.endGame();
-            }
-        } else if (this.gameMode === GAME_MODES.TDM) {
-            // TDM: Game ends when one team is eliminated
-            const redAlive = this.teams.red.filter(tank => tank.isAlive);
-            const blueAlive = this.teams.blue.filter(tank => tank.isAlive);
-            
-            if (redAlive.length === 0 || blueAlive.length === 0) {
-                this.endGame();
-            }
+        if (this.mode && this.mode.checkGameEnd) {
+            this.mode.checkGameEnd(this);
         }
     }
     
@@ -1267,262 +1116,6 @@ class MultiTanksGame {
         if (this.renderer) {
             this.renderer.render();
         }
-    }
-
-    /**
-     * Render grid background
-     */
-    renderGrid() {
-        const gridSize = 50; // Grid cell size
-        const gridColor = 'rgba(255, 255, 255, 0.1)'; // Semi-transparent white
-        
-        this.ctx.strokeStyle = gridColor;
-        this.ctx.lineWidth = 1;
-        
-        // Draw vertical lines
-        for (let x = 0; x <= this.canvas.width; x += gridSize) {
-            this.ctx.beginPath();
-            this.ctx.moveTo(x, 0);
-            this.ctx.lineTo(x, this.canvas.height);
-            this.ctx.stroke();
-        }
-        
-        // Draw horizontal lines
-        for (let y = 0; y <= this.canvas.height; y += gridSize) {
-            this.ctx.beginPath();
-            this.ctx.moveTo(0, y);
-            this.ctx.lineTo(this.canvas.width, y);
-            this.ctx.stroke();
-        }
-    }
-
-    /**
-     * Render obstacles
-     */
-    renderObstacles() {
-        this.obstacles.forEach(obstacle => {
-            this.ctx.fillStyle = obstacle.color;
-            
-            if (obstacle.type === 'rock') {
-                this.ctx.beginPath();
-                this.ctx.arc(obstacle.x, obstacle.y, obstacle.radius, 0, Math.PI * 2);
-                this.ctx.fill();
-            } else {
-                this.ctx.fillRect(
-                    obstacle.x - obstacle.width / 2,
-                    obstacle.y - obstacle.height / 2,
-                    obstacle.width,
-                    obstacle.height
-                );
-            }
-        });
-    }
-
-    /**
-     * Render tanks
-     */
-    renderTanks() {
-        this.tanks.forEach(tank => {
-            if (!tank.isAlive) return;
-            
-            this.ctx.save();
-            this.ctx.translate(tank.x, tank.y);
-            
-            // Draw tank body
-            this.ctx.fillStyle = tank.color;
-            this.ctx.beginPath();
-            this.ctx.arc(0, 0, tank.size / 2, 0, Math.PI * 2);
-            this.ctx.fill();
-            
-            // Draw turret (gray)
-            this.ctx.strokeStyle = '#808080';
-            this.ctx.lineWidth = 4;
-            this.ctx.beginPath();
-            this.ctx.moveTo(0, 0);
-            this.ctx.lineTo(Math.cos(tank.turretAngle) * tank.turretLength, Math.sin(tank.turretAngle) * tank.turretLength);
-            this.ctx.stroke();
-            
-            // Draw health bar
-            if (tank.health < tank.maxHealth) {
-                const barWidth = tank.size;
-                const barHeight = 4;
-                const healthPercent = tank.health / tank.maxHealth;
-                
-                this.ctx.fillStyle = '#ff0000';
-                this.ctx.fillRect(-barWidth / 2, -tank.size / 2 - 10, barWidth, barHeight);
-                
-                this.ctx.fillStyle = '#00ff00';
-                this.ctx.fillRect(-barWidth / 2, -tank.size / 2 - 10, barWidth * healthPercent, barHeight);
-            }
-            
-            // Draw nametag with powerup indicators
-            this.ctx.fillStyle = '#ffffff';
-            this.ctx.strokeStyle = '#000000';
-            this.ctx.lineWidth = 2;
-            this.ctx.font = '12px Arial';
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'bottom';
-            
-            const nameY = -tank.size / 2 - 15;
-            this.ctx.strokeText(tank.name, 0, nameY);
-            this.ctx.fillText(tank.name, 0, nameY);
-            
-            // Draw powerup indicators
-            this.renderPowerupIndicators(tank, nameY);
-            
-            this.ctx.restore();
-        });
-    }
-
-    /**
-     * Render bullets
-     */
-    renderBullets() {
-        this.bullets.forEach(bullet => {
-            this.ctx.fillStyle = bullet.color;
-            this.ctx.beginPath();
-            this.ctx.arc(bullet.x, bullet.y, bullet.size / 2, 0, Math.PI * 2);
-            this.ctx.fill();
-        });
-    }
-    
-    /**
-     * Render powerup indicators next to tank nametag
-     * @param {Object} tank - Tank to render indicators for
-     * @param {number} nameY - Y position of the nametag
-     */
-    renderPowerupIndicators(tank, nameY) {
-        const activePowerups = [];
-        
-        // Map tank powerup property names to GAME_CONFIG keys
-        const powerupMapping = {
-            'invincibility': 'INVINCIBILITY',
-            'speed': 'SPEED',
-            'rapidFire': 'RAPID_FIRE',
-            'spreadShot': 'SPREAD_SHOT',
-            'bouncingBullets': 'BOUNCING_BULLETS'
-        };
-        
-        // Collect active powerups
-        Object.keys(tank.powerups).forEach(powerupType => {
-            const powerupArray = tank.powerups[powerupType];
-            if (powerupArray.length > 0) {
-                const configKey = powerupMapping[powerupType];
-                if (configKey && GAME_CONFIG.POWERUP_TYPES[configKey]) {
-                    // Get the longest remaining time from all stacks
-                    const maxTimeRemaining = Math.max(...powerupArray);
-                    activePowerups.push({
-                        type: configKey,
-                        timeRemaining: maxTimeRemaining,
-                        stacks: powerupArray.length
-                    });
-                }
-            }
-        });
-        
-        if (activePowerups.length === 0) return;
-        
-        // Calculate starting position (to the right of nametag)
-        const nameWidth = this.ctx.measureText(tank.name).width;
-        const startX = nameWidth / 2 + 10;
-        const indicatorY = nameY - 5;
-        
-        // Draw each powerup indicator
-        activePowerups.forEach((powerup, index) => {
-            const indicatorX = startX + (index * 25);
-            
-            // Draw powerup emoji
-            this.ctx.font = '14px Arial';
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
-            this.ctx.fillStyle = '#ffffff';
-            this.ctx.strokeStyle = '#000000';
-            this.ctx.lineWidth = 1;
-            
-            const emoji = GAME_CONFIG.POWERUP_TYPES[powerup.type].emoji;
-            this.ctx.strokeText(emoji, indicatorX, indicatorY);
-            this.ctx.fillText(emoji, indicatorX, indicatorY);
-            
-            // Draw time remaining below emoji
-            this.ctx.font = '10px Arial';
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'top';
-            this.ctx.fillStyle = '#ffff00';
-            this.ctx.strokeStyle = '#000000';
-            this.ctx.lineWidth = 1;
-            
-            const timeText = Math.ceil(powerup.timeRemaining / 1000) + 's';
-            const stackText = powerup.stacks > 1 ? ` (${powerup.stacks}x)` : '';
-            this.ctx.strokeText(timeText + stackText, indicatorX, indicatorY + 8);
-            this.ctx.fillText(timeText + stackText, indicatorX, indicatorY + 8);
-        });
-    }
-    
-    /**
-     * Render powerups
-     */
-    renderPowerups() {
-        this.powerups.forEach(powerup => {
-            if (!powerup.alive) return;
-            
-            this.ctx.save();
-            this.ctx.translate(powerup.x, powerup.y);
-            this.ctx.rotate(powerup.rotation);
-            
-            // Draw powerup background
-            this.ctx.fillStyle = GAME_CONFIG.POWERUP_TYPES[powerup.type].color;
-            this.ctx.beginPath();
-            this.ctx.arc(0, 0, powerup.size / 2, 0, Math.PI * 2);
-            this.ctx.fill();
-            
-            // Draw powerup emoji
-            this.ctx.font = '16px Arial';
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
-            this.ctx.fillStyle = '#ffffff';
-            this.ctx.fillText(GAME_CONFIG.POWERUP_TYPES[powerup.type].emoji, 0, 0);
-            
-            this.ctx.restore();
-            
-            // Update rotation
-            powerup.rotation += 0.02;
-        });
-    }
-
-    /**
-     * Render UI elements
-     */
-    renderUI() {
-        // Render player info
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = '16px Arial';
-        this.ctx.textAlign = 'left';
-        
-        if (this.gameMode === GAME_MODES.TDM) {
-            // TDM mode - show team information
-            const redAlive = this.teams.red.filter(tank => tank.isAlive).length;
-            const blueAlive = this.teams.blue.filter(tank => tank.isAlive).length;
-            
-            this.ctx.fillStyle = GAME_CONFIG.TEAM_COLORS.RED;
-            this.ctx.fillText(`Red Team: ${redAlive}`, 10, 25);
-            
-            this.ctx.fillStyle = GAME_CONFIG.TEAM_COLORS.BLUE;
-            this.ctx.fillText(`Blue Team: ${blueAlive}`, 10, 45);
-            
-            this.ctx.fillStyle = '#ffffff';
-            this.ctx.fillText(`Mode: TDM`, 10, 65);
-        } else {
-            // FFA mode - show standard info
-            this.ctx.fillText(`Players: ${this.numPlayers} | AI: ${this.numAIBots}`, 10, 25);
-            
-            // Render alive tanks count
-            const aliveTanks = this.tanks.filter(tank => tank.isAlive).length;
-            this.ctx.fillText(`Alive: ${aliveTanks}`, 10, 45);
-            
-            this.ctx.fillText(`Mode: FFA`, 10, 65);
-        }
-        
-        // Game over check is now handled by checkGameEnd()
     }
 
     /**
