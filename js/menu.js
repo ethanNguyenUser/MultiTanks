@@ -6,11 +6,13 @@
 class MenuSystem {
     constructor() {
         this.currentScreen = 'main'; // 'main', 'playerSelect', 'game'
+        this.selectedGameMode = GAME_MODES.FFA;
         this.selectedPlayers = 1;
         this.selectedAIBots = 3;
         this.midiConnected = false;
         this.menuElement = null;
         this.gameElement = null;
+        this.teamAssignments = {}; // Store team assignments for TDM
     }
 
     /**
@@ -44,6 +46,17 @@ class MenuSystem {
                         </div>
                         
                         <div class="menu-section">
+                            <h2>🎮 Game Mode</h2>
+                            <div class="game-mode-selector">
+                                <label for="gameMode">Select Game Mode:</label>
+                                <select id="gameMode" class="player-select">
+                                    <option value="${GAME_MODES.FFA}">Free For All (FFA)</option>
+                                    <option value="${GAME_MODES.TDM}">Team Deathmatch (TDM)</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="menu-section" id="playerSelectionSection">
                             <h2>👥 Player Selection</h2>
                             <div class="player-selector">
                                 <label for="playerCount">Number of Players:</label>
@@ -135,6 +148,13 @@ class MenuSystem {
             this.updateStartButton();
         });
         
+        // Game mode selection
+        document.getElementById('gameMode').addEventListener('change', (e) => {
+            this.selectedGameMode = e.target.value;
+            this.updatePlayerSelectionUI();
+            this.updateStartButton();
+        });
+        
         // Start game
         document.getElementById('startGameBtn').addEventListener('click', () => {
             this.showPlayerAssignment();
@@ -209,6 +229,57 @@ class MenuSystem {
         const startBtn = document.getElementById('startGameBtn');
         startBtn.disabled = !this.midiConnected;
     }
+    
+    /**
+     * Update player selection UI based on game mode
+     */
+    updatePlayerSelectionUI() {
+        const playerSection = document.getElementById('playerSelectionSection');
+        const playerCountSelect = document.getElementById('playerCount');
+        const aiBotCountSelect = document.getElementById('aiBotCount');
+        
+        if (this.selectedGameMode === GAME_MODES.TDM) {
+            // For TDM, ensure even number of players for balanced teams
+            playerCountSelect.innerHTML = `
+                <option value="2">2 Players</option>
+                <option value="4">4 Players</option>
+            `;
+            playerCountSelect.value = this.selectedPlayers >= 2 ? this.selectedPlayers : '2';
+            this.selectedPlayers = parseInt(playerCountSelect.value);
+            
+            // Adjust AI bot options for TDM
+            aiBotCountSelect.innerHTML = `
+                <option value="0">0 AI Bots</option>
+                <option value="2">2 AI Bots</option>
+                <option value="4">4 AI Bots</option>
+                <option value="6">6 AI Bots</option>
+            `;
+            if (this.selectedAIBots % 2 !== 0) {
+                this.selectedAIBots = Math.max(0, this.selectedAIBots - 1);
+            }
+            aiBotCountSelect.value = this.selectedAIBots;
+        } else {
+            // For FFA, restore normal options
+            playerCountSelect.innerHTML = `
+                <option value="1">1 Player</option>
+                <option value="2">2 Players</option>
+                <option value="3">3 Players</option>
+                <option value="4">4 Players</option>
+            `;
+            playerCountSelect.value = this.selectedPlayers;
+            
+            aiBotCountSelect.innerHTML = `
+                <option value="0">0 AI Bots</option>
+                <option value="1">1 AI Bot</option>
+                <option value="2">2 AI Bots</option>
+                <option value="3" selected>3 AI Bots</option>
+                <option value="4">4 AI Bots</option>
+                <option value="5">5 AI Bots</option>
+                <option value="6">6 AI Bots</option>
+            `;
+            aiBotCountSelect.value = this.selectedAIBots;
+        }
+    }
 
     /**
      * Show player assignment screen
@@ -227,15 +298,35 @@ class MenuSystem {
         const assignmentElement = document.getElementById('playerAssignment');
         assignmentElement.innerHTML = '';
         
+        // Initialize team assignments
+        this.teamAssignments = {};
+        
         for (let i = 0; i < this.selectedPlayers; i++) {
             const playerDiv = document.createElement('div');
             playerDiv.className = 'player-assignment-item';
+            
+            // Default team assignment for TDM
+            if (this.selectedGameMode === GAME_MODES.TDM) {
+                this.teamAssignments[i] = i % 2 === 0 ? 'red' : 'blue';
+            }
+            
+            const teamSelectHTML = this.selectedGameMode === GAME_MODES.TDM ? `
+                <div class="team-selection">
+                    <label>Team:</label>
+                    <select class="team-select" data-player="${i}">
+                        <option value="red" ${this.teamAssignments[i] === 'red' ? 'selected' : ''}>Red Team</option>
+                        <option value="blue" ${this.teamAssignments[i] === 'blue' ? 'selected' : ''}>Blue Team</option>
+                    </select>
+                </div>
+            ` : '';
+            
             playerDiv.innerHTML = `
                 <div class="player-info">
-                    <div class="player-color" style="background-color: ${TANK_COLORS[i]}"></div>
+                    <div class="player-color" style="background-color: ${this.selectedGameMode === GAME_MODES.TDM ? GAME_CONFIG.TEAM_COLORS[this.teamAssignments[i].toUpperCase()] : TANK_COLORS[i]}"></div>
                     <div class="player-details">
                         <h3>Player ${i + 1}</h3>
                         <p>Octave ${i + 1} (Notes ${MIDI_CONFIG.OCTAVE_BASES[i]}-${MIDI_CONFIG.OCTAVE_BASES[i] + 6})</p>
+                        ${teamSelectHTML}
                         <div class="player-controls">
                             <div class="control-note">A# (${getNoteForPlayer(i, 'A_SHARP')}) - Up</div>
                             <div class="control-note">A (${getNoteForPlayer(i, 'A')}) - Left</div>
@@ -252,20 +343,84 @@ class MenuSystem {
         }
         
         // Show AI info
-        const aiCount = GAME_CONFIG.TOTAL_TANKS - this.selectedPlayers;
-        if (aiCount > 0) {
+        if (this.selectedAIBots > 0) {
             const aiDiv = document.createElement('div');
             aiDiv.className = 'player-assignment-item ai';
+            
+            const aiTeamSelectHTML = this.selectedGameMode === GAME_MODES.TDM ? `
+                <div class="ai-team-selection">
+                    <label>AI Team Distribution:</label>
+                    <div class="ai-team-distribution">
+                        <div class="team-dist">
+                            <label>Red Team AIs:</label>
+                            <input type="number" id="redAICount" min="0" max="${this.selectedAIBots}" value="${Math.floor(this.selectedAIBots / 2)}" class="ai-count-input">
+                        </div>
+                        <div class="team-dist">
+                            <label>Blue Team AIs:</label>
+                            <input type="number" id="blueAICount" min="0" max="${this.selectedAIBots}" value="${Math.ceil(this.selectedAIBots / 2)}" class="ai-count-input">
+                        </div>
+                    </div>
+                </div>
+            ` : '';
+            
             aiDiv.innerHTML = `
                 <div class="player-info">
                     <div class="player-color ai-color">🤖</div>
                     <div class="player-details">
                         <h3>AI Bots</h3>
-                        <p>${aiCount} AI-controlled tanks</p>
+                        <p>${this.selectedAIBots} AI-controlled tanks</p>
+                        ${aiTeamSelectHTML}
                     </div>
                 </div>
             `;
             assignmentElement.appendChild(aiDiv);
+        }
+        
+        // Add event listeners for team selection
+        if (this.selectedGameMode === GAME_MODES.TDM) {
+            this.setupTeamSelectionListeners();
+        }
+    }
+    
+    /**
+     * Setup team selection event listeners
+     */
+    setupTeamSelectionListeners() {
+        // Player team selection
+        document.querySelectorAll('.team-select').forEach(select => {
+            select.addEventListener('change', (e) => {
+                const playerIndex = parseInt(e.target.dataset.player);
+                this.teamAssignments[playerIndex] = e.target.value;
+                
+                // Update player color
+                const playerDiv = e.target.closest('.player-assignment-item');
+                const colorDiv = playerDiv.querySelector('.player-color');
+                colorDiv.style.backgroundColor = GAME_CONFIG.TEAM_COLORS[e.target.value.toUpperCase()];
+            });
+        });
+        
+        // AI team distribution
+        const redAICount = document.getElementById('redAICount');
+        const blueAICount = document.getElementById('blueAICount');
+        
+        if (redAICount && blueAICount) {
+            const updateAIDistribution = () => {
+                const redCount = parseInt(redAICount.value) || 0;
+                const blueCount = parseInt(blueAICount.value) || 0;
+                const total = redCount + blueCount;
+                
+                if (total > this.selectedAIBots) {
+                    // Adjust to not exceed total
+                    if (redCount > blueCount) {
+                        redAICount.value = this.selectedAIBots - blueCount;
+                    } else {
+                        blueAICount.value = this.selectedAIBots - redCount;
+                    }
+                }
+            };
+            
+            redAICount.addEventListener('input', updateAIDistribution);
+            blueAICount.addEventListener('input', updateAIDistribution);
         }
     }
 
@@ -298,9 +453,22 @@ class MenuSystem {
         // Force a reflow
         newCanvas.offsetHeight;
         
+        // Get AI team distribution for TDM
+        let aiTeamDistribution = null;
+        if (this.selectedGameMode === GAME_MODES.TDM) {
+            const redAICount = document.getElementById('redAICount');
+            const blueAICount = document.getElementById('blueAICount');
+            if (redAICount && blueAICount) {
+                aiTeamDistribution = {
+                    red: parseInt(redAICount.value) || 0,
+                    blue: parseInt(blueAICount.value) || 0
+                };
+            }
+        }
+        
         // Initialize game
         window.game = new MultiTanksGame();
-        await window.game.initialize(this.gameElement, this.selectedPlayers, this.selectedAIBots);
+        await window.game.initialize(this.gameElement, this.selectedPlayers, this.selectedAIBots, this.selectedGameMode, this.teamAssignments, aiTeamDistribution);
         
         this.currentScreen = 'game';
     }

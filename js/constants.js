@@ -4,6 +4,14 @@
 // All game parameters that can be easily modified by the user
 
 // =============================================================================
+// GAME MODES
+// =============================================================================
+const GAME_MODES = {
+    FFA: 'ffa',
+    TDM: 'tdm'
+};
+
+// =============================================================================
 // GAME CONFIGURATION
 // =============================================================================
 const GAME_CONFIG = {
@@ -22,7 +30,7 @@ const GAME_CONFIG = {
     // Tank settings
     TANK_SIZE: 30,
     TANK_SPEED: 2,
-    TANK_HEALTH: 10,
+    TANK_HEALTH: 30,
     TURRET_LENGTH: 40,
     TURRET_ROTATION_SPEED: 0.04, // radians per frame
     
@@ -45,6 +53,34 @@ const GAME_CONFIG = {
     // Spawn settings
     SPAWN_DISTANCE_FROM_EDGE: 50, // Distance from map edge for tank spawning
     
+    // Team settings
+    TEAM_COLORS: {
+        RED: '#ff4444',
+        BLUE: '#6666ff'
+    },
+    
+    // Powerup settings
+    POWERUP_DURATION: 10000, // 10 seconds in milliseconds
+    POWERUP_SPAWN_INTERVAL_MIN: 1000, // 1 seconds
+    POWERUP_SPAWN_INTERVAL_MAX: 3000, // 3 seconds
+    POWERUP_CHASE_DISTANCE: 300, // Distance AIs will chase powerups
+    POWERUP_SIZE: 15,
+    POWERUP_HEALTH_BOOST: 10,
+    POWERUP_SPEED_MULTIPLIER: 1.5,
+    POWERUP_FIRE_RATE_MULTIPLIER: 2.0,
+    POWERUP_SPREAD_ANGLE: 0.2, // radians
+    POWERUP_BOUNCE_BOUNCES: 3,
+    
+    // Powerup types and emojis
+    POWERUP_TYPES: {
+        HEALTH: { emoji: '❤️', color: '#ff0000', name: 'Health Boost' },
+        INVINCIBILITY: { emoji: '🛡️', color: '#ff69b4', name: 'Invincibility' },
+        SPEED: { emoji: '🏃', color: '#32cd32', name: 'Speed Boost' },
+        RAPID_FIRE: { emoji: '🔥', color: '#4169e1', name: 'Rapid Fire' },
+        SPREAD_SHOT: { emoji: '🎯', color: '#9370db', name: 'Spread Shot' },
+        BOUNCING_BULLETS: { emoji: '⚡', color: '#ff8c42', name: 'Bouncing Bullets' }
+    },
+    
     // AI behavior settings
     AI_APPROACH_DISTANCE: 600, // Distance to approach target to
     AI_ORBIT_SPEED: 0.02, // Speed of orbiting around enemy
@@ -57,6 +93,8 @@ const GAME_CONFIG = {
     AI_SHOT_LEADING_FACTOR: 20, // How much to lead shots (0-1, higher = more leading)
     AI_SLIDE_SPEED_MULTIPLIER: 0.5, // Speed multiplier for obstacle sliding
     AI_OBSTACLE_GENERATION_MAX_ATTEMPTS: 100, // Max attempts to place obstacles
+    AI_POWERUP_CHASE_TIMEOUT: 2000, // How long AI will chase a powerup before giving up (milliseconds)
+    AI_POWERUP_COOLDOWN: 5000, // How long AI will ignore powerups after giving up (milliseconds)
 };
 
 // =============================================================================
