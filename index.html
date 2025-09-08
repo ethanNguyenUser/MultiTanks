@@ -10,6 +10,7 @@
     
     <!-- Game modules -->
     <script src="js/constants.js"></script>
+    <script src="js/audioSystem.js"></script>
     <script src="js/midiHandler.js"></script>
     <script src="js/game.js"></script>
     <script src="js/menu.js"></script>
@@ -25,6 +26,9 @@
         // Initialize the application when the page loads
         window.addEventListener('load', function() {
             console.log('🚀 MultiTanks Application Starting...');
+            
+            // Initialize audio system
+            window.audioSystem.init();
             
             // Initialize the menu system
             window.menu.initialize();
@@ -42,12 +46,19 @@
                         window.game.togglePause();
                     }
                 }
+                
+                // M key to toggle audio
+                if (event.key === 'm' || event.key === 'M') {
+                    const enabled = window.audioSystem.toggle();
+                    console.log(`🔊 Audio ${enabled ? 'enabled' : 'disabled'}`);
+                }
             });
             
             console.log('✅ MultiTanks Application Ready!');
             console.log('📋 Controls:');
             console.log('  - ESC: Return to menu');
             console.log('  - P: Pause/Unpause game');
+            console.log('  - M: Toggle audio on/off');
             console.log('  - MIDI: Use your MIDI keyboard to control tanks');
         });
         

@@ -79,6 +79,7 @@ class MenuSystem {
                         
                         <div class="menu-section">
                             <button id="startGameBtn" class="menu-btn start" disabled>Start Game</button>
+                            <button id="audioToggleBtn" class="menu-btn secondary">🔊 Audio: ON</button>
                         </div>
                     </div>
                     
@@ -130,6 +131,11 @@ class MenuSystem {
         // Back to main menu
         document.getElementById('backToMainBtn').addEventListener('click', () => {
             this.showMainMenu();
+        });
+        
+        // Audio toggle
+        document.getElementById('audioToggleBtn').addEventListener('click', () => {
+            this.toggleAudio();
         });
     }
 
@@ -289,6 +295,17 @@ class MenuSystem {
         document.getElementById('playerSelectScreen').classList.remove('active');
         document.getElementById('mainMenu').classList.add('active');
         this.currentScreen = 'main';
+    }
+
+    /**
+     * Toggle audio on/off
+     */
+    toggleAudio() {
+        if (window.audioSystem) {
+            const enabled = window.audioSystem.toggle();
+            const button = document.getElementById('audioToggleBtn');
+            button.textContent = enabled ? '🔊 Audio: ON' : '🔇 Audio: OFF';
+        }
     }
 
     /**

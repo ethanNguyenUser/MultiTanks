@@ -54,6 +54,12 @@ class MultiTanksGame {
         this.gameState = GAME_STATES.PLAYING;
         this.lastTime = performance.now();
         this.gameLoop();
+        
+        // Start background music
+        if (window.audioSystem) {
+            window.audioSystem.playMusic('level_1.mp3');
+            window.audioSystem.gameStart();
+        }
     }
 
     /**
@@ -336,16 +342,18 @@ class MultiTanksGame {
         
         // Update tank angle based on movement direction
         if (moveX !== 0 || moveY !== 0) {
-            tank.angle = Math.atan2(moveY, moveX);
+            const moveAngle = Math.atan2(moveY, moveX);
             
-            // Move tank
+            // Move tank with sliding
             const newX = tank.x + moveX * tank.speed;
             const newY = tank.y + moveY * tank.speed;
             
-            // Check collision with obstacles before moving
-            if (!this.checkTankObstacleCollision(tank, newX, newY)) {
-                tank.x = newX;
-                tank.y = newY;
+            // Use sliding movement system
+            this.moveTankWithSliding(tank, newX, newY, moveAngle);
+            
+            // Play movement sound occasionally
+            if (window.audioSystem && Math.random() < 0.1) {
+                window.audioSystem.tankMove();
             }
         }
         
@@ -361,6 +369,112 @@ class MultiTanksGame {
         if (shoot && Date.now() - tank.lastShot > GAME_CONFIG.SHOOT_COOLDOWN) {
             this.shootBullet(tank);
             tank.lastShot = Date.now();
+            
+            // Play shoot sound
+            if (window.audioSystem) {
+                window.audioSystem.shoot();
+            }
+        }
+    }
+
+    /**
+     * Find the nearest enemy to an AI tank (players or other AIs)
+     * @param {Object} aiTank - AI tank looking for target
+     * @returns {Object|null} Nearest enemy tank or null
+     */
+    findNearestEnemy(aiTank) {
+        let nearestEnemy = null;
+        let nearestDistance = Infinity;
+        
+        // Check all tanks except the current AI tank
+        this.tanks.forEach(tank => {
+            if (!tank.isAlive || tank.id === aiTank.id) return;
+            
+            const distance = Math.sqrt((tank.x - aiTank.x) ** 2 + (tank.y - aiTank.y) ** 2);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestEnemy = tank;
+            }
+        });
+        
+        return nearestEnemy;
+    }
+
+    /**
+     * Check if a target is in the AI's field of view
+     * @param {Object} aiTank - AI tank
+     * @param {Object} target - Target tank
+     * @param {number} fovAngle - Field of view angle in radians (default: 120 degrees)
+     * @returns {boolean} True if target is in FOV
+     */
+    isTargetInFOV(aiTank, target, fovAngle = Math.PI * 2/3) {
+        const angleToTarget = Math.atan2(target.y - aiTank.y, target.x - aiTank.x);
+        const angleDiff = Math.abs(this.normalizeAngle(angleToTarget - aiTank.turretAngle));
+        return angleDiff <= fovAngle / 2;
+    }
+
+    /**
+     * Normalize angle to [-π, π] range
+     * @param {number} angle - Angle to normalize
+     * @returns {number} Normalized angle
+     */
+    normalizeAngle(angle) {
+        while (angle > Math.PI) angle -= 2 * Math.PI;
+        while (angle < -Math.PI) angle += 2 * Math.PI;
+        return angle;
+    }
+
+    /**
+     * Move tank with obstacle sliding
+     * @param {Object} tank - Tank to move
+     * @param {number} newX - Desired X position
+     * @param {number} newY - Desired Y position
+     * @param {number} moveAngle - Movement angle
+     */
+    moveTankWithSliding(tank, newX, newY, moveAngle) {
+        // Check if direct movement is possible
+        if (!this.checkTankObstacleCollision(tank, newX, newY)) {
+            tank.x = newX;
+            tank.y = newY;
+            tank.angle = moveAngle;
+            return;
+        }
+
+        // Try sliding along X axis only
+        if (!this.checkTankObstacleCollision(tank, newX, tank.y)) {
+            tank.x = newX;
+            tank.angle = moveAngle;
+            return;
+        }
+
+        // Try sliding along Y axis only
+        if (!this.checkTankObstacleCollision(tank, tank.x, newY)) {
+            tank.y = newY;
+            tank.angle = moveAngle;
+            return;
+        }
+
+        // Try sliding perpendicular to movement direction
+        const perpendicularAngle = moveAngle + Math.PI / 2;
+        const slideX = tank.x + Math.cos(perpendicularAngle) * tank.speed * 0.5;
+        const slideY = tank.y + Math.sin(perpendicularAngle) * tank.speed * 0.5;
+        
+        if (!this.checkTankObstacleCollision(tank, slideX, slideY)) {
+            tank.x = slideX;
+            tank.y = slideY;
+            tank.angle = perpendicularAngle;
+            return;
+        }
+
+        // Try sliding in opposite perpendicular direction
+        const oppositePerpendicularAngle = moveAngle - Math.PI / 2;
+        const slideX2 = tank.x + Math.cos(oppositePerpendicularAngle) * tank.speed * 0.5;
+        const slideY2 = tank.y + Math.sin(oppositePerpendicularAngle) * tank.speed * 0.5;
+        
+        if (!this.checkTankObstacleCollision(tank, slideX2, slideY2)) {
+            tank.x = slideX2;
+            tank.y = slideY2;
+            tank.angle = oppositePerpendicularAngle;
         }
     }
 
@@ -372,26 +486,77 @@ class MultiTanksGame {
     updateAITank(tank, deltaTime) {
         tank.aiTimer += deltaTime;
         
-        // Simple AI behavior
-        if (tank.aiState === 'patrol') {
-            // Move in random direction
-            tank.x += Math.cos(tank.aiDirection) * tank.speed * 0.5;
-            tank.y += Math.sin(tank.aiDirection) * tank.speed * 0.5;
-            
-            // Change direction occasionally
-            if (tank.aiTimer > 2000) {
-                tank.aiDirection = Math.random() * Math.PI * 2;
-                tank.aiTimer = 0;
-            }
+        // Find nearest enemy (player or other AI)
+        const nearestEnemy = this.findNearestEnemy(tank);
+        if (!nearestEnemy) return;
+        
+        const distanceToEnemy = Math.sqrt((nearestEnemy.x - tank.x) ** 2 + (nearestEnemy.y - tank.y) ** 2);
+        
+        // Update AI state based on distance
+        if (distanceToEnemy > 200) {
+            tank.aiState = 'chase';
+        } else if (distanceToEnemy > 100) {
+            tank.aiState = 'approach';
+        } else {
+            tank.aiState = 'attack';
         }
         
-        // Keep turret rotating
-        tank.turretAngle += tank.turretRotationSpeed * 0.5;
+        // Movement behavior with obstacle sliding
+        if (tank.aiState === 'chase' || tank.aiState === 'approach') {
+            // Move toward enemy with frequent strafing
+            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
+            
+            // More frequent strafing when chasing (change direction more often)
+            const strafeVariation = (Math.random() - 0.5) * Math.PI / 2; // ±45 degrees
+            const moveAngle = angleToEnemy + strafeVariation;
+            
+            // Try to move in the calculated direction
+            const newX = tank.x + Math.cos(moveAngle) * tank.speed;
+            const newY = tank.y + Math.sin(moveAngle) * tank.speed;
+            
+            // Check collision and slide if needed
+            this.moveTankWithSliding(tank, newX, newY, moveAngle);
+        } else if (tank.aiState === 'attack') {
+            // Strafe around the enemy
+            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
+            const strafeAngle = angleToEnemy + Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 2; // Perpendicular with variation
+            
+            const newX = tank.x + Math.cos(strafeAngle) * tank.speed;
+            const newY = tank.y + Math.sin(strafeAngle) * tank.speed;
+            
+            this.moveTankWithSliding(tank, newX, newY, strafeAngle);
+        }
         
-        // Shoot occasionally
-        if (Date.now() - tank.lastShot > GAME_CONFIG.SHOOT_COOLDOWN * 2) {
-            this.shootBullet(tank);
-            tank.lastShot = Date.now();
+        // Turret aiming behavior
+        if (this.isTargetInFOV(tank, nearestEnemy)) {
+            // Aim at the enemy
+            const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
+            const angleDiff = this.normalizeAngle(angleToEnemy - tank.turretAngle);
+            
+            // Rotate turret toward target
+            if (Math.abs(angleDiff) > 0.1) {
+                if (angleDiff > 0) {
+                    tank.turretAngle += tank.turretRotationSpeed;
+                } else {
+                    tank.turretAngle -= tank.turretRotationSpeed;
+                }
+            }
+            
+            // Shoot when aimed and in range (same rate as players)
+            if (Math.abs(angleDiff) < 0.2 && distanceToEnemy < 150) {
+                if (Date.now() - tank.lastShot > GAME_CONFIG.SHOOT_COOLDOWN) {
+                    this.shootBullet(tank);
+                    tank.lastShot = Date.now();
+                    
+                    // Play shoot sound for AI
+                    if (window.audioSystem) {
+                        window.audioSystem.shoot();
+                    }
+                }
+            }
+        } else {
+            // If target not in FOV, rotate turret to search
+            tank.turretAngle += tank.turretRotationSpeed * 0.3;
         }
     }
 
@@ -434,9 +599,22 @@ class MultiTanksGame {
                     tank.health -= GAME_CONFIG.BULLET_DAMAGE;
                     this.bullets.splice(bulletIndex, 1);
                     
+                    // Play hit sound
+                    if (window.audioSystem) {
+                        window.audioSystem.hit();
+                    }
+                    
                     if (tank.health <= 0) {
                         tank.isAlive = false;
-                        console.log(`💥 Tank ${tank.id} destroyed!`);
+                        
+                        // Play death sound
+                        if (window.audioSystem) {
+                            if (tank.isAI) {
+                                window.audioSystem.enemyDeath();
+                            } else {
+                                window.audioSystem.death();
+                            }
+                        }
                     }
                 }
             });
@@ -573,16 +751,8 @@ class MultiTanksGame {
             this.ctx.arc(0, 0, tank.size / 2, 0, Math.PI * 2);
             this.ctx.fill();
             
-            // Draw tank direction indicator (black)
-            this.ctx.strokeStyle = '#000';
-            this.ctx.lineWidth = 3;
-            this.ctx.beginPath();
-            this.ctx.moveTo(0, 0);
-            this.ctx.lineTo(Math.cos(tank.angle) * tank.size / 2, Math.sin(tank.angle) * tank.size / 2);
-            this.ctx.stroke();
-            
-            // Draw turret (red)
-            this.ctx.strokeStyle = '#ff0000';
+            // Draw turret (gray)
+            this.ctx.strokeStyle = '#808080';
             this.ctx.lineWidth = 4;
             this.ctx.beginPath();
             this.ctx.moveTo(0, 0);
@@ -676,6 +846,11 @@ class MultiTanksGame {
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
             this.animationId = null;
+        }
+        
+        // Stop background music
+        if (window.audioSystem) {
+            window.audioSystem.stopMusic();
         }
     }
 

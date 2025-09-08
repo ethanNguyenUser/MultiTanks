@@ -19,14 +19,14 @@ const GAME_CONFIG = {
     
     // Tank settings
     TANK_SIZE: 30,
-    TANK_SPEED: 3,
+    TANK_SPEED: 2,
     TANK_HEALTH: 10,
-    TURRET_LENGTH: 20,
-    TURRET_ROTATION_SPEED: 0.1, // radians per frame
+    TURRET_LENGTH: 40,
+    TURRET_ROTATION_SPEED: 0.04, // radians per frame
     
     // Shooting settings
-    SHOOT_COOLDOWN: 500, // milliseconds
-    BULLET_SPEED: 8,
+    SHOOT_COOLDOWN: 700, // milliseconds
+    BULLET_SPEED: 6,
     BULLET_SIZE: 4,
     BULLET_DAMAGE: 1,
     
