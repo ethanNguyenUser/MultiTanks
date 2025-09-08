@@ -88,9 +88,10 @@ class MultiTanksGame {
         this.lastTime = performance.now();
         this.gameLoop();
         
-        // Start background music
+        // Start background music based on mode
         if (window.audioSystem) {
-            window.audioSystem.playMusic('level_1.mp3');
+            const track = this.gameMode === GAME_MODES.TDM ? 'tdm.mp3' : 'ffa.mp3';
+            window.audioSystem.playMusic(track, true);
             window.audioSystem.gameStart();
         }
     }
@@ -901,6 +902,11 @@ class MultiTanksGame {
     endGame() {
         this.gameEndTime = Date.now();
         this.gameState = GAME_STATES.GAME_OVER;
+        // Play victory music once
+        if (window.audioSystem) {
+            window.audioSystem.stopMusic();
+            window.audioSystem.playMusic('victory.mp3', false);
+        }
         this.showEndGameStats();
     }
     
@@ -1028,35 +1034,6 @@ class MultiTanksGame {
         this.initialize(this.canvas, this.numPlayers, this.numAIBots, this.gameMode, this.teamAssignments, this.aiTeamDistribution);
     }
     
-    /**
-     * Return to main menu
-     */
-    returnToMenu() {
-        // Stop game loop
-        if (this.animationId) {
-            cancelAnimationFrame(this.animationId);
-        }
-        
-        // Remove canvas
-        if (this.canvas && this.canvas.parentNode) {
-            this.canvas.parentNode.removeChild(this.canvas);
-        }
-        
-        // Reset game state
-        this.gameState = GAME_STATES.MENU;
-        this.tanks = [];
-        this.bullets = [];
-        this.obstacles = [];
-        this.players = [];
-        this.aiBots = [];
-        this.teams = { red: [], blue: [] };
-        this.playerStats.clear();
-        
-        // Show menu
-        if (window.menuSystem) {
-            window.menuSystem.showMainMenu();
-        }
-    }
 
     /**
      * Check for collisions

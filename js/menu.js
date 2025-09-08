@@ -22,6 +22,16 @@ class MenuSystem {
         this.createMenuHTML();
         this.setupEventListeners();
         this.updateMIDIStatus();
+        // Defer menu music until first user gesture (autoplay policy)
+        const startMenuMusicOnce = async () => {
+            if (!window.audioSystem) return;
+            await window.audioSystem.resume();
+            window.audioSystem.playMusic('menu.mp3');
+            window.removeEventListener('pointerdown', startMenuMusicOnce);
+            window.removeEventListener('keydown', startMenuMusicOnce);
+        };
+        window.addEventListener('pointerdown', startMenuMusicOnce, { once: true });
+        window.addEventListener('keydown', startMenuMusicOnce, { once: true });
     }
 
     /**
@@ -430,6 +440,10 @@ class MenuSystem {
     async startGame() {
         // Hide menu
         this.menuElement.classList.add('hidden');
+        // Stop menu music before starting game
+        if (window.audioSystem) {
+            window.audioSystem.stopMusic();
+        }
         
         // Create a new canvas element dynamically to ensure it's properly rendered
         const newCanvas = document.createElement('canvas');

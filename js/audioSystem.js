@@ -16,6 +16,13 @@ const AudioSys = (() => {
         } 
     }
     
+    async function resumeContext() {
+        ensure();
+        if (ctx && ctx.state === 'suspended') {
+            try { await ctx.resume(); } catch (_) {}
+        }
+    }
+    
     function playTone(freq, dur = 0.12) { 
         if (!enabled || !ctx || !freq) return; 
         const o = ctx.createOscillator(); 
@@ -166,14 +173,21 @@ const AudioSys = (() => {
                 musicEl.pause(); 
             }
             musicEl = new Audio(musicPath); 
-            musicEl.loop = true; 
             musicEl.volume = 0.05; 
         }
     }
     
-    function playMusic(trackName = 'battle_theme.mp3') { 
+    async function playMusic(trackName = 'battle_theme.mp3', shouldLoop = true) { 
         _ensureMusic(trackName); 
-        musicEl.play().catch(() => {});
+        await resumeContext();
+        if (musicEl) {
+            musicEl.loop = !!shouldLoop;
+        }
+        try {
+            await musicEl.play();
+        } catch (_) {
+            // Autoplay may be blocked until user gesture; silently ignore
+        }
     }
     
     function stopMusic() { 
@@ -213,6 +227,7 @@ const AudioSys = (() => {
             return enabled; 
         },
         setMasterVolume,
+        resume: resumeContext,
         isEnabled() { 
             return enabled; 
         },
