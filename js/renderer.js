@@ -11,14 +11,28 @@ class GameRenderer {
         const { ctx, canvas } = this.game;
         if (!ctx) return;
 
+        // Clear canvas
         ctx.fillStyle = GAME_CONFIG.MAP_COLOR;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Apply camera transformation for campaign mode
+        if (this.game.gameMode === GAME_MODES.CAMPAIGN && this.game.camera) {
+            ctx.save();
+            ctx.translate(-this.game.camera.x, -this.game.camera.y);
+        }
 
         this.renderGrid();
         this.renderObstacles();
         this.renderTanks();
+        this.renderCampaignEnemies();
         this.renderBullets();
         this.renderPowerups();
+        
+        // Restore camera transformation
+        if (this.game.gameMode === GAME_MODES.CAMPAIGN && this.game.camera) {
+            ctx.restore();
+        }
+        
         this.renderUI();
     }
 
@@ -28,16 +42,21 @@ class GameRenderer {
         const gridColor = 'rgba(255, 255, 255, 0.1)';
         ctx.strokeStyle = gridColor;
         ctx.lineWidth = 1;
-        for (let x = 0; x <= canvas.width; x += gridSize) {
+        
+        // Use full map size in campaign (camera is already translated), otherwise canvas size
+        const width = (this.game.gameMode === GAME_MODES.CAMPAIGN) ? GAME_CONFIG.MAP_WIDTH : canvas.width;
+        const height = (this.game.gameMode === GAME_MODES.CAMPAIGN) ? GAME_CONFIG.MAP_HEIGHT : canvas.height;
+        
+        for (let x = 0; x <= width; x += gridSize) {
             ctx.beginPath();
             ctx.moveTo(x, 0);
-            ctx.lineTo(x, canvas.height);
+            ctx.lineTo(x, height);
             ctx.stroke();
         }
-        for (let y = 0; y <= canvas.height; y += gridSize) {
+        for (let y = 0; y <= height; y += gridSize) {
             ctx.beginPath();
             ctx.moveTo(0, y);
-            ctx.lineTo(canvas.width, y);
+            ctx.lineTo(width, y);
             ctx.stroke();
         }
     }
@@ -197,12 +216,78 @@ class GameRenderer {
             ctx.fillText(`Blue Team: ${blueAlive}`, 10, 45);
             ctx.fillStyle = '#ffffff';
             ctx.fillText(`Mode: TDM`, 10, 65);
+        } else if (this.game.gameMode === GAME_MODES.CAMPAIGN) {
+            // Campaign mode UI
+            if (this.game.mode && this.game.mode.hudInfo) {
+                const hudInfo = this.game.mode.hudInfo(this.game);
+                hudInfo.lines.forEach((line, index) => {
+                    ctx.fillText(line, 10, 25 + (index * 20));
+                });
+            }
         } else {
             ctx.fillText(`Players: ${this.game.numPlayers} | AI: ${this.game.numAIBots}`, 10, 25);
             const aliveTanks = this.game.tanks.filter(tank => tank.isAlive).length;
             ctx.fillText(`Alive: ${aliveTanks}`, 10, 45);
             ctx.fillText(`Mode: FFA`, 10, 65);
         }
+    }
+    
+    renderCampaignEnemies() {
+        if (this.game.gameMode !== GAME_MODES.CAMPAIGN || !this.game.mode) return;
+        
+        const { ctx } = this.game;
+        this.game.mode.enemies.forEach(enemy => {
+            if (!enemy.isAlive) return;
+            
+            ctx.save();
+            ctx.translate(enemy.x, enemy.y);
+            
+            // Draw enemy body
+            ctx.fillStyle = enemy.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, enemy.size / 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Remove black outline for cleaner look
+            
+            // Draw turret for all enemies, gray color
+            ctx.strokeStyle = '#808080';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.cos(enemy.angle) * (enemy.size / 2 + 10), Math.sin(enemy.angle) * (enemy.size / 2 + 10));
+            ctx.stroke();
+            
+            // Draw health bar (always show for enemies)
+            const barWidth = enemy.size;
+            const barHeight = 4;
+            const healthPercent = enemy.health / enemy.maxHealth;
+            
+            // Background
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(-barWidth / 2, -enemy.size / 2 - 10, barWidth, barHeight);
+            
+            // Health
+            ctx.fillStyle = '#00ff00';
+            ctx.fillRect(-barWidth / 2, -enemy.size / 2 - 10, barWidth * healthPercent, barHeight);
+            
+            // No border for healthbar (remove black outline)
+            
+            // Special effects for boss
+            if (enemy.type === 'boss' && enemy.isEnraged) {
+                // Pulsing effect
+                const pulse = Math.sin(Date.now() * 0.01) * 0.2 + 0.8;
+                ctx.globalAlpha = pulse;
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(0, 0, enemy.size / 2 + 5, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+            
+            ctx.restore();
+        });
     }
 }
 

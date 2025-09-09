@@ -87,8 +87,17 @@ class MultiTanksGame {
         if (this.mode && this.mode.assignTeams) {
             this.mode.assignTeams(this);
         }
-        this.initializeTanks();
-        this.generateObstacles();
+        
+        // Only initialize tanks for non-campaign modes (campaign handles its own tank creation)
+        if (this.gameMode !== GAME_MODES.CAMPAIGN) {
+            this.initializeTanks();
+        }
+        
+        // Only generate obstacles for non-campaign modes
+        if (this.gameMode !== GAME_MODES.CAMPAIGN) {
+            this.generateObstacles();
+        }
+        
         this.setupMIDIInput();
         
         // Initialize AI behavior system
@@ -99,10 +108,15 @@ class MultiTanksGame {
         this.powerupsManager = new GamePowerups(this);
         this.collisions = new GameCollisions(this);
         
-        // Start game loop
-        this.gameState = GAME_STATES.PLAYING;
-        this.lastTime = performance.now();
-        this.gameLoop();
+        // Start game loop (except for campaign mode which needs special initialization)
+        if (this.gameMode !== GAME_MODES.CAMPAIGN) {
+            this.gameState = GAME_STATES.PLAYING;
+            this.lastTime = performance.now();
+            this.gameLoop();
+        } else {
+            // For campaign mode, start in paused state until level is initialized
+            this.gameState = GAME_STATES.PAUSED;
+        }
         
         // Start background music based on mode
         if (window.audioSystem) {
@@ -243,6 +257,7 @@ class MultiTanksGame {
             team: tank.team,
             shotsFired: 0,
             shotsHit: 0,
+            enemyHits: 0,
             kills: 0,
             deaths: 0,
             timeAlive: 0,
@@ -321,6 +336,11 @@ class MultiTanksGame {
             : [];
         const minDistance = GAME_CONFIG.TANK_SIZE * 2;
         
+        // If no spawn positions, no collision possible
+        if (spawnPositions.length === 0) {
+            return false;
+        }
+        
         for (const pos of spawnPositions) {
             let distance;
             
@@ -391,7 +411,14 @@ class MultiTanksGame {
         this.updateBullets(deltaTime);
         this.updatePowerups(deltaTime);
         this.checkCollisions();
-        this.updateAI(deltaTime);
+        
+        // Campaign mode specific updates
+        if (this.gameMode === GAME_MODES.CAMPAIGN && this.mode) {
+            this.mode.updateCamera(this);
+            this.mode.updateEnemies(this, deltaTime);
+            this.mode.updateAIAllies(this, deltaTime);
+        }
+        
         this.checkGameEnd();
     }
 
@@ -531,7 +558,18 @@ class MultiTanksGame {
      */
     updateTanks(deltaTime) {
         this.tanks.forEach(tank => {
-            if (!tank.isAlive) return;
+            if (!tank || !tank.isAlive) return;
+            
+            // Ensure tank has required properties
+            if (!tank.speed) {
+                console.warn('Tank missing speed property:', tank);
+                return;
+            }
+            
+            if (!tank.powerups) {
+                console.warn('Tank missing powerups property:', tank);
+                return;
+            }
             
             // Apply speed powerup (stacking)
             const speedStacks = tank.powerups.speed.length;
@@ -540,7 +578,10 @@ class MultiTanksGame {
             tank.speed = originalSpeed * speedMultiplier;
             
             if (tank.isAI) {
-                window.aiBehavior.updateAITank(tank, deltaTime);
+                // In campaign mode, AI allies are updated via campaignMode.updateAIAllies
+                if (this.gameMode !== GAME_MODES.CAMPAIGN || !tank.isAIAlly) {
+                    window.aiBehavior.updateAITank(tank, deltaTime);
+                }
             } else {
                 this.updatePlayerTank(tank, deltaTime);
             }
@@ -651,14 +692,7 @@ class MultiTanksGame {
     }
 
 
-    /**
-     * Update AI behavior
-     * @param {number} deltaTime - Time since last frame
-     */
-    updateAI(deltaTime) {
-        // AI logic can be expanded here
-        // For now, basic behavior is handled in updateAITank
-    }
+    
 
     /**
      * Update all bullets
@@ -838,6 +872,15 @@ class MultiTanksGame {
     }
     
     /**
+     * Clear all game objects (bullets, powerups, etc.)
+     */
+    clearGameObjects() {
+        this.bullets = [];
+        this.powerups = [];
+        this.powerupSpawnTimer = 0;
+    }
+
+    /**
      * Restart the game
      */
     restartGame() {
@@ -848,8 +891,10 @@ class MultiTanksGame {
         this.obstacles = [];
         this.players = [];
         this.aiBots = [];
+        this.powerups = [];
         this.teams = { red: [], blue: [] };
         this.playerStats.clear();
+        this.powerupSpawnTimer = 0;
         
         // Reinitialize with preserved settings
         this.initialize(this.canvas, this.numPlayers, this.numAIBots, this.gameMode, this.teamAssignments, this.aiTeamDistribution);
@@ -864,6 +909,19 @@ class MultiTanksGame {
         this.bullets.forEach((bullet, bulletIndex) => {
             this.tanks.forEach(tank => {
                 if (!tank.isAlive || tank.id === bullet.ownerId) return;
+                
+                // Campaign mode: Prevent AI ally bullets from hurting players or other AI allies
+                if (this.gameMode === GAME_MODES.CAMPAIGN) {
+                    // Check if bullet is from an AI ally
+                    const bulletOwner = this.tanks.find(t => t.id === bullet.ownerId);
+                    if (bulletOwner && bulletOwner.isAIAlly && (tank.isPlayer || tank.isAIAlly)) {
+                        return; // Skip collision - AI ally bullets don't hurt players or AI allies
+                    }
+                    if (bullet.owner === 'enemy' && (tank.isPlayer || tank.isAIAlly)) {
+                        // Enemy bullets can hurt players and AI allies - this is handled in campaign mode section below
+                        return;
+                    }
+                }
                 
                 // Prevent friendly fire in TDM mode
                 if (this.gameMode === GAME_MODES.TDM) {
@@ -936,6 +994,122 @@ class MultiTanksGame {
                 }
             });
         });
+        
+        // Campaign mode: Bullet vs Enemy collisions
+        if (this.gameMode === GAME_MODES.CAMPAIGN && this.mode) {
+            this.bullets.forEach((bullet, bulletIndex) => {
+                this.mode.enemies.forEach(enemy => {
+                    if (!enemy.isAlive) return;
+                    
+                    const distance = Math.sqrt((bullet.x - enemy.x) ** 2 + (bullet.y - enemy.y) ** 2);
+                    if (distance < enemy.size / 2 + bullet.size / 2) {
+                        // Hit enemy!
+                        enemy.health -= bullet.damage;
+                        this.bullets.splice(bulletIndex, 1);
+
+                        // Update player/ally shotsHit and enemyHits on successful hit
+                        if (bullet.owner === 'player' || bullet.owner === 'aiAlly') {
+                            const bulletOwner = this.tanks.find(t => t.id === bullet.ownerId);
+                            if (bulletOwner) {
+                                bulletOwner.shotsHit++;
+                                const ownerStats = this.playerStats.get(bulletOwner.id);
+                                if (ownerStats) {
+                                    ownerStats.shotsHit++;
+                                    ownerStats.enemyHits++;
+                                }
+                            }
+                        }
+
+                        // Update statistics only when enemy dies
+                        if (enemy.health <= 0 && (bullet.owner === 'player' || bullet.owner === 'aiAlly')) {
+                            this.mode.levelStats.enemiesKilled++;
+                            
+                            // Track kills per player/AI ally
+                            const bulletOwner = this.tanks.find(t => t.id === bullet.ownerId);
+                            if (bulletOwner) {
+                                if (bulletOwner.isPlayer) {
+                                    const currentKills = this.mode.levelStats.playerKills.get(bulletOwner.id) || 0;
+                                    this.mode.levelStats.playerKills.set(bulletOwner.id, currentKills + 1);
+                                } else if (bulletOwner.isAIAlly) {
+                                    const currentKills = this.mode.levelStats.aiAllyKills.get(bulletOwner.id) || 0;
+                                    this.mode.levelStats.aiAllyKills.set(bulletOwner.id, currentKills + 1);
+                                }
+
+                                // Also reflect in global playerStats for end-screen
+                                const ownerStats = this.playerStats.get(bulletOwner.id);
+                                if (ownerStats) {
+                                    ownerStats.kills++;
+                                    ownerStats.killsList.push('Enemy');
+                                }
+                            }
+                        }
+                        
+                        // Play hit sound
+                        if (window.audioSystem) {
+                            window.audioSystem.hit();
+                        }
+                        
+                        if (enemy.health <= 0) {
+                            enemy.isAlive = false;
+                            
+                            // Play death sound
+                            if (window.audioSystem) {
+                                window.audioSystem.enemyDeath();
+                            }
+                        }
+                    }
+                });
+            });
+            
+            // Campaign mode: Enemy bullet vs Player/AI Ally collisions
+            this.bullets.forEach((bullet, bulletIndex) => {
+                if (bullet.owner === 'enemy') {
+                    this.tanks.forEach(tank => {
+                        if (!tank.isAlive || !(tank.isPlayer || tank.isAIAlly)) return;
+                        
+                        const distance = Math.sqrt((bullet.x - tank.x) ** 2 + (bullet.y - tank.y) ** 2);
+                        if (distance < tank.size / 2 + bullet.size / 2) {
+                            // Check invincibility powerup
+                            if (tank.powerups.invincibility.length > 0) {
+                                // Tank is invincible, don't take damage
+                                this.bullets.splice(bulletIndex, 1);
+                                return;
+                            }
+                            
+                            // Hit!
+                            tank.health -= bullet.damage;
+                            this.bullets.splice(bulletIndex, 1);
+                            
+                            // Play hit sound
+                            if (window.audioSystem) {
+                                window.audioSystem.hit();
+                            }
+                            
+                            if (tank.health <= 0) {
+                                tank.isAlive = false;
+                                tank.deathTime = Date.now();
+                                
+                                // Play death sound
+                                if (window.audioSystem) {
+                                    if (tank.isAIAlly) {
+                                        window.audioSystem.enemyDeath();
+                                    } else {
+                                        window.audioSystem.death();
+                                    }
+                                }
+
+                                // Update playerStats deaths for players and AI allies
+                                const stats = this.playerStats.get(tank.id);
+                                if (stats) {
+                                    stats.deaths++;
+                                    stats.deathTime = tank.deathTime;
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        }
         
         // Bullet vs Obstacle collisions
         this.bullets.forEach((bullet, bulletIndex) => {
@@ -1036,6 +1210,8 @@ class MultiTanksGame {
                     angle: baseAngle,
                     speed: GAME_CONFIG.BULLET_SPEED,
                     size: GAME_CONFIG.BULLET_SIZE,
+                    damage: GAME_CONFIG.BULLET_DAMAGE,
+                    owner: (tank.isPlayer ? 'player' : (tank.isAIAlly ? 'aiAlly' : 'ai')),
                     ownerId: tank.id,
                     color: tank.color,
                     bounces: tank.powerups.bouncingBullets.length > 0 ? GAME_CONFIG.POWERUP_BOUNCE_BOUNCES : 0
@@ -1054,6 +1230,8 @@ class MultiTanksGame {
                         angle: angle,
                         speed: GAME_CONFIG.BULLET_SPEED,
                         size: GAME_CONFIG.BULLET_SIZE,
+                        damage: GAME_CONFIG.BULLET_DAMAGE,
+                        owner: (tank.isPlayer ? 'player' : (tank.isAIAlly ? 'aiAlly' : 'ai')),
                         ownerId: tank.id,
                         color: tank.color,
                         bounces: tank.powerups.bouncingBullets.length > 0 ? GAME_CONFIG.POWERUP_BOUNCE_BOUNCES : 0
@@ -1069,6 +1247,8 @@ class MultiTanksGame {
                 angle: tank.turretAngle,
                 speed: GAME_CONFIG.BULLET_SPEED,
                 size: GAME_CONFIG.BULLET_SIZE,
+                damage: GAME_CONFIG.BULLET_DAMAGE,
+                owner: (tank.isPlayer ? 'player' : (tank.isAIAlly ? 'aiAlly' : 'ai')),
                 ownerId: tank.id,
                 color: tank.color,
                 bounces: tank.powerups.bouncingBullets.length > 0 ? GAME_CONFIG.POWERUP_BOUNCE_BOUNCES : 0

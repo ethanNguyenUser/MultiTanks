@@ -9,6 +9,8 @@ class MidiHandler {
         this.inputs = [];
         this.controlCallbacks = new Map(); // Map of control events to callback functions
         this.debugMode = false;
+        this.keyboardFallback = false;
+        this.keyboardMapping = this.createKeyboardMapping();
     }
 
     /**
@@ -21,14 +23,17 @@ class MidiHandler {
         
         try {
             if (typeof WebMidi === 'undefined') {
-                throw new Error('WebMidi.js library not loaded');
+                this.log('⚠️ WebMidi.js library not loaded, enabling keyboard fallback');
+                this.enableKeyboardFallback();
+                return true;
             }
 
             await WebMidi.enable();
 
             if (WebMidi.inputs.length === 0) {
-                this.log('⚠️ No MIDI input devices detected');
-                return false;
+                this.log('⚠️ No MIDI input devices detected, enabling keyboard fallback');
+                this.enableKeyboardFallback();
+                return true;
             }
 
             // Clear previous listeners
@@ -44,12 +49,14 @@ class MidiHandler {
 
             this.isConnected = true;
             this.inputs = Array.from(WebMidi.inputs);
+            this.keyboardFallback = false;
             this.log('✅ MIDI initialized successfully!');
             return true;
 
         } catch (error) {
-            this.log(`❌ MIDI Error: ${error.message}`);
-            return false;
+            this.log(`❌ MIDI Error: ${error.message}, enabling keyboard fallback`);
+            this.enableKeyboardFallback();
+            return true;
         }
     }
 
@@ -190,13 +197,145 @@ class MidiHandler {
     }
 
     /**
+     * Create keyboard mapping for fallback
+     * @returns {Object} Keyboard mapping object
+     */
+    createKeyboardMapping() {
+        return {
+            // Player 0 controls (WASD + Arrow keys)
+            'KeyW': { player: 0, control: 'A_SHARP' }, // Up
+            'KeyA': { player: 0, control: 'A' },       // Left
+            'KeyS': { player: 0, control: 'B' },       // Down
+            'KeyD': { player: 0, control: 'C' },       // Right
+            'ArrowLeft': { player: 0, control: 'C_SHARP' },  // Aim Left
+            'ArrowRight': { player: 0, control: 'D_SHARP' }, // Aim Right
+            'Space': { player: 0, control: 'D' },      // Shoot
+            'ArrowUp': { player: 0, control: 'A_SHARP' },    // Up (alternative)
+            'ArrowDown': { player: 0, control: 'B' },        // Down (alternative)
+        };
+    }
+
+    /**
+     * Enable keyboard fallback mode
+     */
+    enableKeyboardFallback() {
+        this.keyboardFallback = true;
+        this.isConnected = false;
+        this.inputs = [];
+        this.setupKeyboardListeners();
+        this.log('⌨️ Keyboard fallback enabled');
+    }
+
+    /**
+     * Setup keyboard event listeners
+     */
+    setupKeyboardListeners() {
+        // Remove existing listeners
+        this.removeKeyboardListeners();
+        
+        // Add new listeners
+        document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        document.addEventListener('keyup', (e) => this.handleKeyUp(e));
+    }
+
+    /**
+     * Remove keyboard event listeners
+     */
+    removeKeyboardListeners() {
+        document.removeEventListener('keydown', this.handleKeyDown);
+        document.removeEventListener('keyup', this.handleKeyUp);
+    }
+
+    /**
+     * Handle key down events
+     * @param {KeyboardEvent} event - Keyboard event
+     */
+    handleKeyDown(event) {
+        if (!this.keyboardFallback) return;
+        
+        const mapping = this.keyboardMapping[event.code];
+        if (!mapping) return;
+
+        event.preventDefault();
+        
+        if (this.debugMode) {
+            this.log(`⌨️ Key DOWN: ${event.code} - Player ${mapping.player} ${mapping.control}`);
+        }
+
+        // Create control event similar to MIDI
+        const controlEvent = {
+            playerIndex: mapping.player,
+            control: mapping.control,
+            isPressed: true,
+            velocity: 1.0,
+            noteNumber: 0, // Not applicable for keyboard
+            timestamp: Date.now()
+        };
+
+        this.triggerCallbacks(controlEvent);
+    }
+
+    /**
+     * Handle key up events
+     * @param {KeyboardEvent} event - Keyboard event
+     */
+    handleKeyUp(event) {
+        if (!this.keyboardFallback) return;
+        
+        const mapping = this.keyboardMapping[event.code];
+        if (!mapping) return;
+
+        event.preventDefault();
+        
+        if (this.debugMode) {
+            this.log(`⌨️ Key UP: ${event.code} - Player ${mapping.player} ${mapping.control}`);
+        }
+
+        // Create control event similar to MIDI
+        const controlEvent = {
+            playerIndex: mapping.player,
+            control: mapping.control,
+            isPressed: false,
+            velocity: 0,
+            noteNumber: 0, // Not applicable for keyboard
+            timestamp: Date.now()
+        };
+
+        this.triggerCallbacks(controlEvent);
+    }
+
+    /**
+     * Get connection status (true if MIDI connected OR keyboard fallback active)
+     * @returns {boolean} Connection status
+     */
+    getConnectionStatus() {
+        return this.isConnected || this.keyboardFallback;
+    }
+
+    /**
+     * Get input method description
+     * @returns {string} Input method description
+     */
+    getInputMethod() {
+        if (this.isConnected) {
+            return `MIDI (${this.inputs.length} device${this.inputs.length !== 1 ? 's' : ''})`;
+        } else if (this.keyboardFallback) {
+            return 'Keyboard (WASD + Arrow Keys)';
+        } else {
+            return 'None';
+        }
+    }
+
+    /**
      * Disconnect and cleanup
      */
     disconnect() {
         if (typeof WebMidi !== 'undefined') {
             WebMidi.removeListener();
         }
+        this.removeKeyboardListeners();
         this.isConnected = false;
+        this.keyboardFallback = false;
         this.inputs = [];
         this.controlCallbacks.clear();
         this.log('🔌 MIDI disconnected');

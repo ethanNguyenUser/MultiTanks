@@ -13,6 +13,10 @@ class MenuSystem {
         this.menuElement = null;
         this.gameElement = null;
         this.teamAssignments = {}; // Store team assignments for TDM
+        
+        // Campaign settings
+        this.selectedCampaignLevel = 1;
+        this.selectedCampaignDifficulty = 'MEDIUM';
     }
 
     /**
@@ -27,6 +31,10 @@ class MenuSystem {
         const aiBotCountSelect = document.getElementById('aiBotCount');
         if (playerCountSelect) playerCountSelect.value = String(this.selectedPlayers);
         if (aiBotCountSelect) aiBotCountSelect.value = String(this.selectedAIBots);
+        
+        // Initialize keyboard fallback by default
+        this.initializeKeyboardFallback();
+        
         this.updateStartButton();
         // Defer menu music until first user gesture (autoplay policy)
         const startMenuMusicOnce = async () => {
@@ -46,6 +54,63 @@ class MenuSystem {
     createMenuHTML() {
         const body = document.body;
         body.innerHTML = `
+            <style>
+                .campaign-options {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 15px;
+                }
+                
+                .campaign-option {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 5px;
+                }
+                
+                .campaign-option label {
+                    font-weight: bold;
+                    color: #e6edf3;
+                }
+                
+                .campaign-option input[type="checkbox"] {
+                    margin-right: 8px;
+                    transform: scale(1.2);
+                }
+                
+                .campaign-option select {
+                    padding: 8px;
+                    border-radius: 6px;
+                    border: 1px solid #444;
+                    background: #2a2a2a;
+                    color: #e6edf3;
+                    font-size: 14px;
+                }
+                
+                .campaign-instructions {
+                    margin-top: 20px;
+                    padding: 15px;
+                    background: rgba(0, 0, 0, 0.3);
+                    border-radius: 8px;
+                    border-left: 4px solid #2196f3;
+                }
+                
+                .campaign-instructions h3 {
+                    color: #2196f3;
+                    margin-bottom: 10px;
+                    font-size: 16px;
+                }
+                
+                .campaign-instructions ul {
+                    margin: 0;
+                    padding-left: 20px;
+                    color: #e6edf3;
+                }
+                
+                .campaign-instructions li {
+                    margin-bottom: 8px;
+                    line-height: 1.4;
+                }
+            </style>
             <div id="menuContainer" class="menu-container">
                 <div class="menu-content">
                     <h1 class="game-title">🎮 MultiTanks</h1>
@@ -54,11 +119,15 @@ class MenuSystem {
                     <!-- Main Menu -->
                     <div id="mainMenu" class="menu-screen active">
                         <div class="menu-section">
-                            <h2>🎹 MIDI Device</h2>
+                            <h2>🎹 Input Device</h2>
                             <div class="midi-status" id="midiStatus">
-                                <p>Checking MIDI support...</p>
+                                <p>Checking input support...</p>
                             </div>
                             <button id="connectMidiBtn" class="menu-btn primary">Connect MIDI Device</button>
+                            <div class="input-info" id="inputInfo" style="display: none;">
+                                <p class="input-method" id="inputMethod"></p>
+                                <p class="input-instructions" id="inputInstructions"></p>
+                            </div>
                         </div>
                         
                         <div class="menu-section">
@@ -68,6 +137,7 @@ class MenuSystem {
                                 <select id="gameMode" class="player-select">
                                     <option value="${GAME_MODES.FFA}">Free For All (FFA)</option>
                                     <option value="${GAME_MODES.TDM}">Team Deathmatch (TDM)</option>
+                                    <option value="${GAME_MODES.CAMPAIGN}">Campaign Mode</option>
                                 </select>
                             </div>
                         </div>
@@ -103,20 +173,102 @@ class MenuSystem {
                         
                         <div class="menu-section">
                             <h2>🎮 Controls</h2>
-                            <div class="controls-info">
-                                <div class="control-group">
-                                    <h3>Left Hand (Movement)</h3>
-                                    <div class="control-item">A# - Move Up</div>
-                                    <div class="control-item">A - Move Left</div>
-                                    <div class="control-item">B - Move Down</div>
-                                    <div class="control-item">C - Move Right</div>
+                            <div class="controls-info" id="controlsInfo">
+                                <div class="control-group" id="midiControls">
+                                    <h3>MIDI Keyboard</h3>
+                                    <div class="control-subgroup">
+                                        <h4>Left Hand (Movement)</h4>
+                                        <div class="control-item">A# - Move Up</div>
+                                        <div class="control-item">A - Move Left</div>
+                                        <div class="control-item">B - Move Down</div>
+                                        <div class="control-item">C - Move Right</div>
+                                    </div>
+                                    <div class="control-subgroup">
+                                        <h4>Right Hand (Turret)</h4>
+                                        <div class="control-item">C# - Aim Left</div>
+                                        <div class="control-item">D# - Aim Right</div>
+                                        <div class="control-item">D - Shoot</div>
+                                    </div>
                                 </div>
-                                <div class="control-group">
-                                    <h3>Right Hand (Turret)</h3>
-                                    <div class="control-item">C# - Aim Left</div>
-                                    <div class="control-item">D# - Aim Right</div>
-                                    <div class="control-item">D - Shoot</div>
+                                <div class="control-group" id="keyboardControls" style="display: none;">
+                                    <h3>Keyboard (WASD + Arrow Keys)</h3>
+                                    <div class="control-subgroup">
+                                        <h4>Movement</h4>
+                                        <div class="control-item">W / ↑ - Move Up</div>
+                                        <div class="control-item">A / ← - Move Left</div>
+                                        <div class="control-item">S / ↓ - Move Down</div>
+                                        <div class="control-item">D / → - Move Right</div>
+                                    </div>
+                                    <div class="control-subgroup">
+                                        <h4>Turret & Shooting</h4>
+                                        <div class="control-item">← - Aim Left</div>
+                                        <div class="control-item">→ - Aim Right</div>
+                                        <div class="control-item">Space - Shoot</div>
+                                    </div>
                                 </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Campaign Mode Settings -->
+                        <div class="menu-section" id="campaignSettings" style="display: none;">
+                            <h2>🎯 Campaign Settings</h2>
+                            
+                            <div class="player-selector">
+                                <label for="campaignPlayerCount">Number of Players:</label>
+                                <select id="campaignPlayerCount" class="player-select">
+                                    <option value="0">0 Players (AI Only)</option>
+                                    <option value="1" selected>1 Player</option>
+                                    <option value="2">2 Players</option>
+                                    <option value="3">3 Players</option>
+                                    <option value="4">4 Players</option>
+                                </select>
+                            </div>
+                            
+                            <div class="player-selector">
+                                <label for="campaignAIBotCount">Number of AI Allies:</label>
+                                <select id="campaignAIBotCount" class="player-select">
+                                    <option value="0">0 AI Allies</option>
+                                    <option value="1">1 AI Ally</option>
+                                    <option value="2">2 AI Allies</option>
+                                    <option value="3">3 AI Allies</option>
+                                    <option value="4">4 AI Allies</option>
+                                    <option value="5">5 AI Allies</option>
+                                    <option value="6">6 AI Allies</option>
+                                    <option value="7">7 AI Allies</option>
+                                    <option value="8">8 AI Allies</option>
+                                </select>
+                            </div>
+                            
+                            <div class="player-selector">
+                                <label for="campaignLevel">Select Level:</label>
+                                <select id="campaignLevel" class="player-select">
+                                    <option value="1">Level 1</option>
+                                    <option value="2">Level 2</option>
+                                    <option value="3">Level 3</option>
+                                    <option value="4">Level 4</option>
+                                    <option value="5">Level 5</option>
+                                </select>
+                            </div>
+                            
+                            <div class="player-selector">
+                                <label for="campaignDifficulty">Difficulty:</label>
+                                <select id="campaignDifficulty" class="player-select">
+                                    <option value="EASY">Easy</option>
+                                    <option value="MEDIUM" selected>Medium</option>
+                                    <option value="HARD">Hard</option>
+                                </select>
+                            </div>
+                            
+                            <div class="campaign-instructions">
+                                <h3>📋 Campaign Instructions</h3>
+                                <ul>
+                                    <li>🎯 <strong>Objective:</strong> Eliminate all enemies to complete each level</li>
+                                    <li>🤖 <strong>AI Allies:</strong> Fight alongside you against enemy forces</li>
+                                    <li>🎮 <strong>Controls:</strong> Use MIDI keyboard or WASD + Arrow keys</li>
+                                    <li>💪 <strong>Power-ups:</strong> Collect stars for special abilities</li>
+                                    <li>🏆 <strong>Progression:</strong> Complete all 5 levels to win the campaign</li>
+                                    <li>⚔️ <strong>Enemy Types:</strong> Chasers, Spread Shooters, Turrets, and Bosses</li>
+                                </ul>
                             </div>
                         </div>
                         
@@ -171,12 +323,41 @@ class MenuSystem {
         document.getElementById('gameMode').addEventListener('change', (e) => {
             this.selectedGameMode = e.target.value;
             this.updatePlayerSelectionUI();
+            this.updateCampaignSettings();
             this.updateStartButton();
+        });
+        
+        // Campaign settings
+        document.getElementById('campaignPlayerCount').addEventListener('change', (e) => {
+            this.selectedPlayers = parseInt(e.target.value);
+            this.updateStartButton();
+        });
+        
+        document.getElementById('campaignAIBotCount').addEventListener('change', (e) => {
+            this.selectedAIBots = parseInt(e.target.value);
+            this.updateStartButton();
+        });
+        
+        // Initialize campaign settings to default values
+        this.selectedPlayers = 1; // Default to 1 player for campaign
+        this.selectedAIBots = 3; // Default to 3 AI allies for campaign
+        
+        document.getElementById('campaignLevel').addEventListener('change', (e) => {
+            this.selectedCampaignLevel = parseInt(e.target.value);
+        });
+        
+        document.getElementById('campaignDifficulty').addEventListener('change', (e) => {
+            this.selectedCampaignDifficulty = e.target.value;
         });
         
         // Start game
         document.getElementById('startGameBtn').addEventListener('click', () => {
-            this.showPlayerAssignment();
+            if (this.selectedGameMode === GAME_MODES.CAMPAIGN) {
+                // Skip player assignment for campaign mode
+                this.startGame();
+            } else {
+                this.showPlayerAssignment();
+            }
         });
         
         // Confirm players
@@ -209,16 +390,10 @@ class MenuSystem {
             const success = await window.midiHandler.initialize(false); // Disable debug mode
             
             if (success) {
-                this.midiConnected = true;
-                statusElement.innerHTML = `
-                    <p style="color: #4CAF50;">✅ Connected to ${window.midiHandler.getDeviceCount()} device(s)</p>
-                    <p style="font-size: 12px; color: #ccc;">${window.midiHandler.getDeviceNames().join(', ')}</p>
-                `;
-                connectBtn.textContent = 'MIDI Connected';
-                connectBtn.disabled = true;
+                this.updateInputDisplay();
                 this.updateStartButton();
             } else {
-                throw new Error('Failed to connect to MIDI device');
+                throw new Error('Failed to connect to any input device');
             }
         } catch (error) {
             this.midiConnected = false;
@@ -229,15 +404,62 @@ class MenuSystem {
     }
 
     /**
+     * Initialize keyboard fallback by default
+     */
+    initializeKeyboardFallback() {
+        // Initialize MIDI handler with keyboard fallback
+        window.midiHandler.initialize(false).then(() => {
+            this.updateInputDisplay();
+        });
+    }
+
+    /**
+     * Update input display based on current input method
+     */
+    updateInputDisplay() {
+        const statusElement = document.getElementById('midiStatus');
+        const inputInfo = document.getElementById('inputInfo');
+        const inputMethod = document.getElementById('inputMethod');
+        const inputInstructions = document.getElementById('inputInstructions');
+        const midiControls = document.getElementById('midiControls');
+        const keyboardControls = document.getElementById('keyboardControls');
+        const connectBtn = document.getElementById('connectMidiBtn');
+        
+        if (window.midiHandler.getConnectionStatus()) {
+            const inputMethodText = window.midiHandler.getInputMethod();
+            
+            statusElement.innerHTML = `<p style="color: #4CAF50;">✅ ${inputMethodText}</p>`;
+            inputInfo.style.display = 'block';
+            inputMethod.textContent = `Input Method: ${inputMethodText}`;
+            
+            if (window.midiHandler.isConnected) {
+                inputInstructions.textContent = `Connected to ${window.midiHandler.getDeviceCount()} MIDI device(s): ${window.midiHandler.getDeviceNames().join(', ')}`;
+                midiControls.style.display = 'block';
+                keyboardControls.style.display = 'none';
+                connectBtn.textContent = 'MIDI Connected';
+            } else {
+                inputInstructions.textContent = 'Using keyboard fallback - only single player supported';
+                midiControls.style.display = 'none';
+                keyboardControls.style.display = 'block';
+                connectBtn.textContent = 'Switch to MIDI';
+            }
+            
+            connectBtn.disabled = false;
+            this.midiConnected = window.midiHandler.isConnected;
+            this.updatePlayerSelectionUI();
+        }
+    }
+
+    /**
      * Update MIDI status on page load
      */
     updateMIDIStatus() {
         const statusElement = document.getElementById('midiStatus');
         
         if (typeof WebMidi === 'undefined') {
-            statusElement.innerHTML = '<p style="color: #ff4444;">❌ WebMidi.js not loaded</p>';
+            statusElement.innerHTML = '<p style="color: #ff4444;">❌ WebMidi.js not loaded - keyboard fallback available</p>';
         } else {
-            statusElement.innerHTML = '<p>Ready to connect MIDI device</p>';
+            statusElement.innerHTML = '<p>Ready to connect MIDI device or use keyboard</p>';
         }
     }
 
@@ -246,8 +468,8 @@ class MenuSystem {
      */
     updateStartButton() {
         const startBtn = document.getElementById('startGameBtn');
-        // Allow starting without MIDI when there are 0 human players
-        const canStartWithoutMidi = this.selectedPlayers === 0;
+        // Allow starting without MIDI when there are 0 human players OR when using keyboard fallback
+        const canStartWithoutMidi = this.selectedPlayers === 0 || (this.selectedPlayers === 1 && window.midiHandler.getConnectionStatus());
         startBtn.disabled = !(this.midiConnected || canStartWithoutMidi);
     }
     
@@ -259,14 +481,28 @@ class MenuSystem {
         const playerCountSelect = document.getElementById('playerCount');
         const aiBotCountSelect = document.getElementById('aiBotCount');
         
-        // Both modes: allow 0–4 players and 0–8 bots, uneven teams allowed
-        playerCountSelect.innerHTML = `
-            <option value="0">0 Players</option>
-            <option value="1">1 Player</option>
-            <option value="2">2 Players</option>
-            <option value="3">3 Players</option>
-            <option value="4">4 Players</option>
-        `;
+        // Check if using keyboard fallback (only supports 1 player)
+        const isKeyboardFallback = window.midiHandler && window.midiHandler.keyboardFallback;
+        
+        if (isKeyboardFallback) {
+            // Keyboard fallback: only allow 0-1 players
+            playerCountSelect.innerHTML = `
+                <option value="0">0 Players</option>
+                <option value="1">1 Player</option>
+            `;
+            if (this.selectedPlayers > 1) {
+                this.selectedPlayers = 1;
+            }
+        } else {
+            // MIDI mode: allow 0–4 players
+            playerCountSelect.innerHTML = `
+                <option value="0">0 Players</option>
+                <option value="1">1 Player</option>
+                <option value="2">2 Players</option>
+                <option value="3">3 Players</option>
+                <option value="4">4 Players</option>
+            `;
+        }
         playerCountSelect.value = this.selectedPlayers;
         
         aiBotCountSelect.innerHTML = `
@@ -281,6 +517,32 @@ class MenuSystem {
             <option value="8">8 AI Bots</option>
         `;
         aiBotCountSelect.value = this.selectedAIBots;
+    }
+
+    /**
+     * Update campaign settings visibility
+     */
+    updateCampaignSettings() {
+        const campaignSettings = document.getElementById('campaignSettings');
+        const playerSection = document.getElementById('playerSelectionSection');
+        
+        if (this.selectedGameMode === GAME_MODES.CAMPAIGN) {
+            campaignSettings.style.display = 'block';
+            playerSection.style.display = 'none'; // Hide regular player selection for campaign
+            
+            // Set default values for campaign settings
+            const campaignPlayerCount = document.getElementById('campaignPlayerCount');
+            const campaignAIBotCount = document.getElementById('campaignAIBotCount');
+            if (campaignPlayerCount) {
+                campaignPlayerCount.value = this.selectedPlayers;
+            }
+            if (campaignAIBotCount) {
+                campaignAIBotCount.value = this.selectedAIBots;
+            }
+        } else {
+            campaignSettings.style.display = 'none';
+            playerSection.style.display = 'block';
+        }
     }
 
     /**
@@ -474,7 +736,21 @@ class MenuSystem {
         
         // Initialize game
         window.game = new MultiTanksGame();
-        await window.game.initialize(this.gameElement, this.selectedPlayers, this.selectedAIBots, this.selectedGameMode, this.teamAssignments, aiTeamDistribution);
+        
+        if (this.selectedGameMode === GAME_MODES.CAMPAIGN) {
+            // Campaign mode initialization
+            await window.game.initialize(this.gameElement, this.selectedPlayers, this.selectedAIBots, this.selectedGameMode, this.teamAssignments, aiTeamDistribution);
+            
+            // Set campaign-specific settings
+            if (window.game.mode) {
+                window.game.mode.currentLevel = this.selectedCampaignLevel;
+                window.game.mode.difficulty = this.selectedCampaignDifficulty;
+                window.game.mode.initializeLevel(window.game);
+            }
+        } else {
+            // Regular mode initialization
+            await window.game.initialize(this.gameElement, this.selectedPlayers, this.selectedAIBots, this.selectedGameMode, this.teamAssignments, aiTeamDistribution);
+        }
         
         this.currentScreen = 'game';
     }
@@ -673,15 +949,29 @@ const menuStyles = `
         }
         
         .controls-info {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            display: flex;
+            justify-content: center;
             margin-top: 15px;
+        }
+        
+        .control-group {
+            max-width: 400px;
+            width: 100%;
         }
         
         .control-group h3 {
             color: #4CAF50;
             margin-bottom: 10px;
+        }
+        
+        .control-subgroup {
+            margin: 10px 0;
+        }
+        
+        .control-subgroup h4 {
+            color: #81C784;
+            margin-bottom: 5px;
+            font-size: 14px;
         }
         
         .control-item {
@@ -690,6 +980,24 @@ const menuStyles = `
             margin: 5px 0;
             border-radius: 5px;
             font-family: monospace;
+        }
+        
+        .input-info {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 5px;
+        }
+        
+        .input-method {
+            font-weight: bold;
+            color: #4CAF50;
+            margin-bottom: 5px;
+        }
+        
+        .input-instructions {
+            font-size: 12px;
+            color: #ccc;
         }
         
         .player-assignment {

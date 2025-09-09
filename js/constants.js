@@ -8,7 +8,8 @@
 // =============================================================================
 const GAME_MODES = {
     FFA: 'ffa',
-    TDM: 'tdm'
+    TDM: 'tdm',
+    CAMPAIGN: 'campaign'
 };
 
 // =============================================================================
@@ -82,7 +83,7 @@ const GAME_CONFIG = {
     },
     
     // AI behavior settings
-    AI_APPROACH_DISTANCE: 600, // Distance to approach target to
+    AI_APPROACH_DISTANCE: 99900, // Distance to approach target to
     AI_ORBIT_SPEED: 0.02, // Speed of orbiting around enemy
     AI_ORBIT_DIRECTION_CHANGE_CHANCE: 0.02, // Chance per frame to change orbit direction (2%)
     AI_ORBIT_DISTANCE: 300, // Distance to maintain from enemy when orbiting
@@ -232,3 +233,136 @@ function isMovementControl(control) {
 function isTurretControl(control) {
     return ['C_SHARP', 'D', 'D_SHARP'].includes(control);
 }
+
+// =============================================================================
+// CAMPAIGN MODE CONFIGURATION
+// =============================================================================
+const CAMPAIGN_CONFIG = {
+    // Level settings
+    TOTAL_LEVELS: 5,
+    LEVEL_SELECT_ENABLED: true, // All levels selectable immediately
+    
+    // Enemy types
+    ENEMY_TYPES: {
+        CHASER: 'chaser',
+        SPREAD_SHOOTER: 'spreadShooter', 
+        TURRET: 'turret',
+        BOSS: 'boss'
+    },
+    
+    // Enemy health multipliers (8x from inspiration game)
+    ENEMY_HEALTH_MULTIPLIER: 8,
+    
+    // Enemy configurations
+    ENEMIES: {
+        CHASER: {
+            health: 16,
+            speed: 2,
+            size: 25,
+            color: '#ff6b6b',
+            fireRate: 0.8, // seconds
+            bulletSpeed: 4,
+            bulletDamage: 1,
+            bulletColor: '#ffff00' // Yellow bullets
+        },
+        SPREAD_SHOOTER: {
+            health: 24,
+            speed: 3,
+            size: 30,
+            color: '#4ecdc4',
+            fireRate: 1.5,
+            bulletSpeed: 3.5,
+            bulletDamage: 1,
+            bulletColor: '#ffff00',
+            spreadAngle: 0.3, // radians
+            bulletCount: 3
+        },
+        TURRET: {
+            health: 32,
+            speed: 0, // Stationary
+            size: 35,
+            color: '#fae964',
+            fireRate: 0.7,
+            bulletSpeed: 4.5,
+            bulletDamage: 1,
+            bulletColor: '#ffff00',
+            ricochet: true,
+            maxBounces: 2
+        },
+        BOSS: {
+            health: 240,
+            speed: 2,
+            size: 50,
+            color: '#e91e63',
+            fireRate: 1.0,
+            bulletSpeed: 5,
+            bulletDamage: 2,
+            bulletColor: '#ffff00',
+            enrageHealth: 120, // 50% health
+            enragedFireRate: 0.5,
+            radialBullets: 16,
+            radialFireRate: 3.0
+        }
+    },
+    
+    // Level progression
+    LEVELS: {
+        1: { chaser: 3, spreadShooter: 1, turret: 2, boss: 0 },
+        2: { chaser: 4, spreadShooter: 2, turret: 3, boss: 0 },
+        3: { chaser: 5, spreadShooter: 3, turret: 4, boss: 0 },
+        4: { chaser: 6, spreadShooter: 4, turret: 5, boss: 0 },
+        5: { chaser: 4, spreadShooter: 2, turret: 3, boss: 1 }
+    },
+    
+    // Map scaling per level
+    MAP_SCALING: {
+        baseWidth: 1200,
+        baseHeight: 800,
+        widthGrowth: 200,
+        heightGrowth: 150
+    },
+    
+    // Player spawn settings
+    PLAYER_SPAWN: {
+        x: 100, // Top-left area
+        y: 100,
+        spacing: 80
+    },
+    
+    // AI Ally settings
+    AI_ALLIES: {
+        maxCount: 8, // Max total players + AI allies
+        followDistance: 400, // Stay within this distance of player average
+        targetRange: 9000, // How far they can see enemies (much larger for better engagement)
+        fireRate: 1.0,
+        bulletSpeed: 5,
+        bulletDamage: 1,
+        color: '#2196f3' // Blue like players
+    },
+    
+    // Camera settings
+    CAMERA: {
+        followSpeed: 0.1, // How quickly camera follows players
+        zoom: 1.0,
+        minDistance: 100 // Minimum distance before camera starts following
+    },
+    
+    // Difficulty settings (affects enemies only)
+    DIFFICULTY: {
+        EASY: {
+            enemySpeedMultiplier: 0.7,
+            enemyFireRateMultiplier: 0.6,
+            enemyBulletSpeedMultiplier: 0.8
+        },
+        MEDIUM: {
+            enemySpeedMultiplier: 1.0,
+            enemyFireRateMultiplier: 1.0,
+            enemyBulletSpeedMultiplier: 1.0
+        },
+        HARD: {
+            enemySpeedMultiplier: 1.4,
+            enemyFireRateMultiplier: 2,
+            enemyBulletSpeedMultiplier: 1.3
+        }
+    }
+};

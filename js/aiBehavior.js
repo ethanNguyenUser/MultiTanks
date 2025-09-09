@@ -17,6 +17,12 @@ class AIBehavior {
         let nearestEnemy = null;
         let nearestDistance = Infinity;
         
+        // In campaign mode, AI allies should target enemies from the campaign mode
+        if (this.game.gameMode === GAME_MODES.CAMPAIGN && aiTank.isAIAlly) {
+            // Use the pre-set target from campaign mode
+            return aiTank.aiTarget;
+        }
+        
         // Check all tanks except the current AI tank
         this.game.tanks.forEach(tank => {
             if (!tank.isAlive || tank.id === aiTank.id) return;
@@ -25,6 +31,13 @@ class AIBehavior {
             if (this.game.gameMode === GAME_MODES.TDM) {
                 if (aiTank.team === tank.team) {
                     return; // Skip same team
+                }
+            }
+            
+            // In campaign mode, regular AI tanks should target enemies (not players or AI allies)
+            if (this.game.gameMode === GAME_MODES.CAMPAIGN) {
+                if (tank.isPlayer || tank.isAIAlly) {
+                    return; // Skip players and AI allies
                 }
             }
             
@@ -47,6 +60,34 @@ class AIBehavior {
         while (angle > Math.PI) angle -= 2 * Math.PI;
         while (angle < -Math.PI) angle += 2 * Math.PI;
         return angle;
+    }
+
+    /**
+     * Follow players in campaign mode when no enemies are nearby
+     * @param {Object} tank - AI ally tank
+     */
+    followPlayersInCampaign(tank) {
+        const players = this.game.tanks.filter(t => t.isAlive && t.isPlayer);
+        if (players.length === 0) return;
+        
+        const avgX = players.reduce((sum, p) => sum + p.x, 0) / players.length;
+        const avgY = players.reduce((sum, p) => sum + p.y, 0) / players.length;
+        
+        const dx = avgX - tank.x;
+        const dy = avgY - tank.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Only move if we're not already close to players
+        if (distance > tank.followDistance) {
+            const moveX = (dx / distance) * tank.speed;
+            const moveY = (dy / distance) * tank.speed;
+            
+            const newX = tank.x + moveX;
+            const newY = tank.y + moveY;
+            const moveAngle = Math.atan2(dy, dx);
+            
+            this.game.moveTankWithSliding(tank, newX, newY, moveAngle);
+        }
     }
 
     /**
@@ -123,7 +164,13 @@ class AIBehavior {
         
         // Determine primary target (powerup takes priority if within range)
         let primaryTarget = targetPowerup || nearestEnemy;
-        if (!primaryTarget) return;
+        if (!primaryTarget) {
+            // For AI allies in campaign mode, follow players when no enemies are nearby
+            if (this.game.gameMode === GAME_MODES.CAMPAIGN && tank.isAIAlly) {
+                this.followPlayersInCampaign(tank);
+            }
+            return;
+        }
         
         const distanceToTarget = Math.sqrt((primaryTarget.x - tank.x) ** 2 + (primaryTarget.y - tank.y) ** 2);
         
@@ -139,7 +186,12 @@ class AIBehavior {
             // Chasing enemy - use original behavior
             const distanceToEnemy = Math.sqrt((nearestEnemy.x - tank.x) ** 2 + (nearestEnemy.y - tank.y) ** 2);
             
-            if (distanceToEnemy > GAME_CONFIG.AI_APPROACH_DISTANCE) {
+            // In campaign mode, AI allies should approach enemies more aggressively
+            const approachDistance = (this.game.gameMode === GAME_MODES.CAMPAIGN && tank.isAIAlly) 
+                ? GAME_CONFIG.AI_APPROACH_DISTANCE * 1.5 
+                : GAME_CONFIG.AI_APPROACH_DISTANCE;
+            
+            if (distanceToEnemy > approachDistance) {
                 // Approach the target
                 const angleToEnemy = Math.atan2(nearestEnemy.y - tank.y, nearestEnemy.x - tank.x);
                 const newX = tank.x + Math.cos(angleToEnemy) * tank.speed;
