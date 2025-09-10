@@ -525,8 +525,12 @@ class MultiTanksGame {
                 tank.health = Math.min(tank.maxHealth, tank.health + GAME_CONFIG.POWERUP_HEALTH_BOOST);
                 break;
             case 'INVINCIBILITY':
-                // Add 10 seconds to invincibility timer
-                tank.powerups.invincibility.push(GAME_CONFIG.POWERUP_DURATION);
+                // Extend duration by 15s instead of stacking
+                if (tank.powerups.invincibility.length === 0) {
+                    tank.powerups.invincibility.push(GAME_CONFIG.POWERUP_DURATION);
+                } else {
+                    tank.powerups.invincibility[0] += GAME_CONFIG.POWERUP_DURATION;
+                }
                 break;
             case 'SPEED':
                 // Add 10 seconds to speed timer
@@ -541,8 +545,12 @@ class MultiTanksGame {
                 tank.powerups.spreadShot.push(GAME_CONFIG.POWERUP_DURATION);
                 break;
             case 'BOUNCING_BULLETS':
-                // Add 10 seconds to bouncing bullets timer
-                tank.powerups.bouncingBullets.push(GAME_CONFIG.POWERUP_DURATION);
+                // Extend duration by 15s instead of stacking
+                if (tank.powerups.bouncingBullets.length === 0) {
+                    tank.powerups.bouncingBullets.push(GAME_CONFIG.POWERUP_DURATION);
+                } else {
+                    tank.powerups.bouncingBullets[0] += GAME_CONFIG.POWERUP_DURATION;
+                }
                 break;
         }
         
@@ -699,7 +707,13 @@ class MultiTanksGame {
      * @param {number} deltaTime - Time since last frame
      */
     updateBullets(deltaTime) {
+        const nowMs = Date.now();
         this.bullets = this.bullets.filter(bullet => {
+            // Expire bullets after max lifetime
+            if (!bullet.spawnTime) bullet.spawnTime = nowMs;
+            if (nowMs - bullet.spawnTime > GAME_CONFIG.BULLET_MAX_LIFETIME_MS) {
+                return false;
+            }
             bullet.x += Math.cos(bullet.angle) * bullet.speed;
             bullet.y += Math.sin(bullet.angle) * bullet.speed;
 
@@ -954,9 +968,14 @@ class MultiTanksGame {
                         }
                     }
                     
-                    // Play hit sound
+                    // Play hit and hurt sounds (hurt only for players/AI allies in campaign)
                     if (window.audioSystem) {
-                        window.audioSystem.hit();
+                        if (this.gameMode === GAME_MODES.CAMPAIGN && (tank.isPlayer || tank.isAIAlly)) {
+                            window.audioSystem.hurt();
+                        }
+                        else {
+                            window.audioSystem.hit();
+                        }
                     }
                     
                     if (tank.health <= 0) {
@@ -984,7 +1003,10 @@ class MultiTanksGame {
                         
                         // Play death sound
                         if (window.audioSystem) {
-                            if (tank.isAI) {
+                            if (this.gameMode === GAME_MODES.CAMPAIGN && tank.isAIAlly) {
+                                // In campaign, AI allies use player death sound
+                                window.audioSystem.death();
+                            } else if (tank.isAI) {
                                 window.audioSystem.enemyDeath();
                             } else {
                                 window.audioSystem.death();
@@ -998,6 +1020,10 @@ class MultiTanksGame {
         // Campaign mode: Bullet vs Enemy collisions
         if (this.gameMode === GAME_MODES.CAMPAIGN && this.mode) {
             this.bullets.forEach((bullet, bulletIndex) => {
+                // Enemy bullets should not hit enemies in campaign; skip processing here
+                if (bullet.owner === 'enemy') {
+                    return;
+                }
                 this.mode.enemies.forEach(enemy => {
                     if (!enemy.isAlive) return;
                     
@@ -1045,9 +1071,7 @@ class MultiTanksGame {
                         }
                         
                         // Play hit sound
-                        if (window.audioSystem) {
-                            window.audioSystem.hit();
-                        }
+                        window.audioSystem.hit();
                         
                         if (enemy.health <= 0) {
                             enemy.isAlive = false;
@@ -1080,22 +1104,18 @@ class MultiTanksGame {
                             tank.health -= bullet.damage;
                             this.bullets.splice(bulletIndex, 1);
                             
-                            // Play hit sound
+                            // Campaign: only play hurt for players/AI allies (no hit sound)
                             if (window.audioSystem) {
-                                window.audioSystem.hit();
+                                window.audioSystem.hurt();
                             }
                             
                             if (tank.health <= 0) {
                                 tank.isAlive = false;
                                 tank.deathTime = Date.now();
                                 
-                                // Play death sound
+                                // Play death sound (in campaign, AI allies use player death sound)
                                 if (window.audioSystem) {
-                                    if (tank.isAIAlly) {
-                                        window.audioSystem.enemyDeath();
-                                    } else {
-                                        window.audioSystem.death();
-                                    }
+                                    window.audioSystem.death();
                                 }
 
                                 // Update playerStats deaths for players and AI allies
@@ -1214,7 +1234,8 @@ class MultiTanksGame {
                     owner: (tank.isPlayer ? 'player' : (tank.isAIAlly ? 'aiAlly' : 'ai')),
                     ownerId: tank.id,
                     color: tank.color,
-                    bounces: tank.powerups.bouncingBullets.length > 0 ? GAME_CONFIG.POWERUP_BOUNCE_BOUNCES : 0
+                    bounces: tank.powerups.bouncingBullets.length > 0 ? GAME_CONFIG.POWERUP_BOUNCE_BOUNCES : 0,
+                    spawnTime: Date.now()
                 };
                 this.bullets.push(bullet);
             } else {
@@ -1234,7 +1255,8 @@ class MultiTanksGame {
                         owner: (tank.isPlayer ? 'player' : (tank.isAIAlly ? 'aiAlly' : 'ai')),
                         ownerId: tank.id,
                         color: tank.color,
-                        bounces: tank.powerups.bouncingBullets.length > 0 ? GAME_CONFIG.POWERUP_BOUNCE_BOUNCES : 0
+                        bounces: tank.powerups.bouncingBullets.length > 0 ? GAME_CONFIG.POWERUP_BOUNCE_BOUNCES : 0,
+                        spawnTime: Date.now()
                     };
                     this.bullets.push(bullet);
                 }
@@ -1251,7 +1273,8 @@ class MultiTanksGame {
                 owner: (tank.isPlayer ? 'player' : (tank.isAIAlly ? 'aiAlly' : 'ai')),
                 ownerId: tank.id,
                 color: tank.color,
-                bounces: tank.powerups.bouncingBullets.length > 0 ? GAME_CONFIG.POWERUP_BOUNCE_BOUNCES : 0
+                bounces: tank.powerups.bouncingBullets.length > 0 ? GAME_CONFIG.POWERUP_BOUNCE_BOUNCES : 0,
+                spawnTime: Date.now()
             };
             
             this.bullets.push(bullet);

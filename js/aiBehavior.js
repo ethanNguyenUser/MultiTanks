@@ -160,7 +160,35 @@ class AIBehavior {
         }
         
         // Find nearest enemy (player or other AI)
-        const nearestEnemy = this.findNearestEnemy(tank);
+        let nearestEnemy = this.findNearestEnemy(tank);
+
+        // In FFA/TDM, enforce target stickiness: keep current target for at least 1s before switching
+        if (this.game.gameMode !== GAME_MODES.CAMPAIGN) {
+            const nowTs = Date.now();
+            let lockedTarget = null;
+            if (tank.aiLockedTargetId !== undefined && tank.aiLockedTargetId !== null) {
+                lockedTarget = this.game.tanks.find(t => t.id === tank.aiLockedTargetId && t.isAlive);
+                // In TDM, ensure locked target is still an enemy
+                if (this.game.gameMode === GAME_MODES.TDM && lockedTarget && tank.team === lockedTarget.team) {
+                    lockedTarget = null;
+                }
+            }
+            const lockUntil = tank.aiTargetLockUntil || 0;
+            if (lockedTarget && nowTs < lockUntil) {
+                // Stick to locked target during lock window
+                nearestEnemy = lockedTarget;
+            } else if (nearestEnemy) {
+                // Acquire/refresh lock for new target
+                if (!lockedTarget || nearestEnemy.id !== lockedTarget.id || nowTs >= lockUntil) {
+                    tank.aiLockedTargetId = nearestEnemy.id;
+                    tank.aiTargetLockUntil = nowTs + (GAME_CONFIG.AI_TARGET_LOCK_DURATION_MS || 1000);
+                }
+            } else {
+                // No enemy; clear lock
+                tank.aiLockedTargetId = null;
+                tank.aiTargetLockUntil = 0;
+            }
+        }
         
         // Determine primary target (powerup takes priority if within range)
         let primaryTarget = targetPowerup || nearestEnemy;
@@ -267,9 +295,8 @@ class AIBehavior {
             
             const angleToTarget = Math.atan2(targetY - tank.y, targetX - tank.x);
             
-            // Add some randomness to the target angle
-            const randomOffset = (Math.random() - 0.5) * GAME_CONFIG.AI_AIMING_RANDOMNESS;
-            const targetAngle = angleToTarget + randomOffset;
+            // Aim directly at target (randomness disabled)
+            const targetAngle = angleToTarget;
             
             const angleDiff = this.normalizeAngle(targetAngle - tank.turretAngle);
             

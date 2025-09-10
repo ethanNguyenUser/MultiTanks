@@ -16,14 +16,6 @@ class GamePowerups {
             { type: 'RAPID_FIRE', weight: 8 },
             { type: 'HEALTH', weight: 2 }
         ];
-        // this.powerupWeights = [
-        //     { type: 'INVINCIBILITY', weight: 1 },
-        //     { type: 'BOUNCING_BULLETS', weight: 3 },
-        //     { type: 'SPEED', weight: 4 },
-        //     { type: 'SPREAD_SHOT', weight: 5 },
-        //     { type: 'RAPID_FIRE', weight: 5 },
-        //     { type: 'HEALTH', weight: 2 }
-        // ];
     }
 
     update(deltaTime) {
@@ -130,7 +122,11 @@ class GamePowerups {
                 tank.health = Math.min(tank.maxHealth, tank.health + GAME_CONFIG.POWERUP_HEALTH_BOOST);
                 break;
             case 'INVINCIBILITY':
-                tank.powerups.invincibility.push(GAME_CONFIG.POWERUP_DURATION);
+                if (tank.powerups.invincibility.length === 0) {
+                    tank.powerups.invincibility.push(GAME_CONFIG.POWERUP_DURATION);
+                } else {
+                    tank.powerups.invincibility[0] += GAME_CONFIG.POWERUP_DURATION;
+                }
                 break;
             case 'SPEED':
                 tank.powerups.speed.push(GAME_CONFIG.POWERUP_DURATION);
@@ -142,7 +138,11 @@ class GamePowerups {
                 tank.powerups.spreadShot.push(GAME_CONFIG.POWERUP_DURATION);
                 break;
             case 'BOUNCING_BULLETS':
-                tank.powerups.bouncingBullets.push(GAME_CONFIG.POWERUP_DURATION);
+                if (tank.powerups.bouncingBullets.length === 0) {
+                    tank.powerups.bouncingBullets.push(GAME_CONFIG.POWERUP_DURATION);
+                } else {
+                    tank.powerups.bouncingBullets[0] += GAME_CONFIG.POWERUP_DURATION;
+                }
                 break;
         }
         if (window.audioSystem) { window.audioSystem.powerUp(); }

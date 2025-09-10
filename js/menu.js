@@ -447,6 +447,8 @@ class MenuSystem {
             connectBtn.disabled = false;
             this.midiConnected = window.midiHandler.isConnected;
             this.updatePlayerSelectionUI();
+            // Ensure start button reflects current input method (keyboard fallback vs MIDI)
+            this.updateStartButton();
         }
     }
 
@@ -468,8 +470,9 @@ class MenuSystem {
      */
     updateStartButton() {
         const startBtn = document.getElementById('startGameBtn');
-        // Allow starting without MIDI when there are 0 human players OR when using keyboard fallback
-        const canStartWithoutMidi = this.selectedPlayers === 0 || (this.selectedPlayers === 1 && window.midiHandler.getConnectionStatus());
+        // Allow starting without MIDI when there are 0 human players OR when using keyboard fallback (1 player)
+        const isKeyboardFallback = window.midiHandler && window.midiHandler.keyboardFallback;
+        const canStartWithoutMidi = this.selectedPlayers === 0 || (this.selectedPlayers === 1 && isKeyboardFallback);
         startBtn.disabled = !(this.midiConnected || canStartWithoutMidi);
     }
     

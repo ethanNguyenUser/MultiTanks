@@ -66,6 +66,13 @@ const CampaignMode = {
         const scaling = CAMPAIGN_CONFIG.MAP_SCALING;
         GAME_CONFIG.MAP_WIDTH = scaling.baseWidth + (levelIndex * scaling.widthGrowth);
         GAME_CONFIG.MAP_HEIGHT = scaling.baseHeight + (levelIndex * scaling.heightGrowth);
+        // Set background color per level
+        if (Array.isArray(CAMPAIGN_CONFIG.MAP_COLORS)) {
+            const color = CAMPAIGN_CONFIG.MAP_COLORS[(this.currentLevel - 1) % CAMPAIGN_CONFIG.MAP_COLORS.length];
+            if (color) {
+                GAME_CONFIG.MAP_COLOR = color;
+            }
+        }
         
         console.log('🎯 Map size:', GAME_CONFIG.MAP_WIDTH, 'x', GAME_CONFIG.MAP_HEIGHT);
         
@@ -232,7 +239,8 @@ const CampaignMode = {
             health: config.health,
             maxHealth: config.health,
             speed: config.speed,
-            color: config.color,
+            // Colors pulled from configuration map
+            color: CAMPAIGN_CONFIG.ENEMY_COLORS[type] || '#d06bff',
             isAlive: true,
             lastShot: 0,
             fireRate: config.fireRate,
@@ -248,7 +256,13 @@ const CampaignMode = {
             radialFireRate: config.radialFireRate || 0,
             lastRadialShot: 0,
             angle: 0, // For turret rotation
-            target: null
+            target: null,
+            // Tracking for shot leading
+            lastTargetX: 0,
+            lastTargetY: 0,
+            lastTargetTime: Date.now(),
+            targetVelX: 0,
+            targetVelY: 0
         };
         
         // Apply difficulty multipliers
@@ -261,8 +275,8 @@ const CampaignMode = {
     },
     
     getRandomSpawnPosition(game) {
-        const margin = 100;
-        const attempts = 50;
+        const margin = CAMPAIGN_CONFIG.ENEMY_SPAWN_MARGIN;
+        const attempts = CAMPAIGN_CONFIG.ENEMY_SPAWN_ATTEMPTS;
         
         for (let i = 0; i < attempts; i++) {
             const x = margin + Math.random() * (GAME_CONFIG.MAP_WIDTH - 2 * margin);
@@ -270,7 +284,7 @@ const CampaignMode = {
             
             // Check if position is far enough from players
             const playerPositions = game.tanks.filter(t => t.isPlayer).map(t => ({ x: t.x, y: t.y }));
-            const minDistance = 150;
+            const minDistance = CAMPAIGN_CONFIG.ENEMY_SPAWN_MIN_DISTANCE_FROM_PLAYERS;
             let validPosition = true;
             
             for (const pos of playerPositions) {
@@ -288,8 +302,8 @@ const CampaignMode = {
         
         // Fallback to center area if no valid position found
         return {
-            x: GAME_CONFIG.MAP_WIDTH * 0.7 + Math.random() * GAME_CONFIG.MAP_WIDTH * 0.2,
-            y: GAME_CONFIG.MAP_HEIGHT * 0.7 + Math.random() * GAME_CONFIG.MAP_HEIGHT * 0.2
+            x: GAME_CONFIG.MAP_WIDTH * CAMPAIGN_CONFIG.ENEMY_FALLBACK_SPAWN_X_FACTOR + Math.random() * GAME_CONFIG.MAP_WIDTH * CAMPAIGN_CONFIG.ENEMY_FALLBACK_SPAWN_RANGE_FACTOR,
+            y: GAME_CONFIG.MAP_HEIGHT * CAMPAIGN_CONFIG.ENEMY_FALLBACK_SPAWN_X_FACTOR + Math.random() * GAME_CONFIG.MAP_HEIGHT * CAMPAIGN_CONFIG.ENEMY_FALLBACK_SPAWN_RANGE_FACTOR
         };
     },
     
@@ -396,12 +410,20 @@ const CampaignMode = {
     updateCamera(game) {
         if (!game.camera) return;
         
-        // Calculate average position of all alive players and AI allies
+        // Calculate weighted average position: players have higher weight than AI allies
         const aliveTanks = game.tanks.filter(t => t.isAlive && (t.isPlayer || t.isAIAlly));
         if (aliveTanks.length === 0) return;
         
-        const avgX = aliveTanks.reduce((sum, t) => sum + t.x, 0) / aliveTanks.length;
-        const avgY = aliveTanks.reduce((sum, t) => sum + t.y, 0) / aliveTanks.length;
+        const playerWeight = CAMPAIGN_CONFIG.CAMERA_PLAYER_WEIGHT;
+        let sumX = 0, sumY = 0, totalWeight = 0;
+        aliveTanks.forEach(t => {
+            const w = t.isPlayer ? playerWeight : 1;
+            sumX += t.x * w;
+            sumY += t.y * w;
+            totalWeight += w;
+        });
+        const avgX = sumX / totalWeight;
+        const avgY = sumY / totalWeight;
         
         // Update camera target
         game.camera.targetX = avgX - GAME_CONFIG.MAP_WIDTH / 2;
@@ -611,12 +633,23 @@ const CampaignMode = {
         const dy = target.y - enemy.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
+        // Maintain a minimum separation from the target to avoid overlap
+        const minSeparation = Math.max(GAME_CONFIG.AI_MIN_ORBIT_DISTANCE, (enemy.size + (target.size || GAME_CONFIG.TANK_SIZE)) * 0.5);
         if (distance > 0) {
-            const moveX = (dx / distance) * enemy.speed;
-            const moveY = (dy / distance) * enemy.speed;
-            
-            enemy.x += moveX;
-            enemy.y += moveY;
+            if (distance > minSeparation) {
+                // Move toward but do not overshoot into the separation radius
+                const allowedStep = Math.min(enemy.speed, distance - minSeparation);
+                const moveX = (dx / distance) * allowedStep;
+                const moveY = (dy / distance) * allowedStep;
+                enemy.x += moveX;
+                enemy.y += moveY;
+            } else if (distance < minSeparation * 0.9) {
+                // Nudge away slightly if too close
+                const moveX = -(dx / distance) * (enemy.speed * 0.5);
+                const moveY = -(dy / distance) * (enemy.speed * 0.5);
+                enemy.x += moveX;
+                enemy.y += moveY;
+            }
         }
         
         // Always rotate turret to face target
@@ -632,16 +665,31 @@ const CampaignMode = {
         const dy = target.y - enemy.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
+        const minSeparation = Math.max(GAME_CONFIG.AI_MIN_ORBIT_DISTANCE, (enemy.size + (target.size || GAME_CONFIG.TANK_SIZE)) * 0.5);
         if (distance > 0) {
-            const moveX = (dx / distance) * enemy.speed * 0.5;
-            const moveY = (dy / distance) * enemy.speed * 0.5;
-            
+            // Base drift towards target at half speed
+            let baseToward = Math.max(0, Math.min(enemy.speed * 0.5, Math.max(0, distance - minSeparation)));
             // Add some randomness
             const randomX = (Math.random() - 0.5) * enemy.speed * 0.3;
             const randomY = (Math.random() - 0.5) * enemy.speed * 0.3;
             
-            enemy.x += moveX + randomX;
-            enemy.y += moveY + randomY;
+            let moveX = 0;
+            let moveY = 0;
+            
+            if (distance > minSeparation) {
+                moveX = (dx / distance) * baseToward + randomX;
+                moveY = (dy / distance) * baseToward + randomY;
+            } else if (distance < minSeparation * 0.9) {
+                // If too close, bias away plus some randomness
+                moveX = -(dx / distance) * (enemy.speed * 0.5) + randomX;
+                moveY = -(dy / distance) * (enemy.speed * 0.5) + randomY;
+            } else {
+                // Within band, just random drift
+                moveX = randomX;
+                moveY = randomY;
+            }
+            enemy.x += moveX;
+            enemy.y += moveY;
         }
         
         // Always rotate turret to face target
@@ -666,6 +714,8 @@ const CampaignMode = {
         if (enemy.health <= enemy.maxHealth / 2 && !enemy.isEnraged) {
             enemy.isEnraged = true;
             enemy.fireRate = enemy.fireRate * 0.5; // Double fire rate
+            enemy.radialFireRate = enemy.radialFireRate * 0.8;
+            enemy.radialBullets = enemy.radialBullets * 2; // Double bullet count
             enemy.speed = enemy.speed * 1.3; // Boss should move faster when enraged
         }
         
@@ -674,12 +724,20 @@ const CampaignMode = {
         const dy = target.y - enemy.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
+        const minSeparation = Math.max(GAME_CONFIG.AI_MIN_ORBIT_DISTANCE, (enemy.size + (target.size || GAME_CONFIG.TANK_SIZE)) * 0.5);
         if (distance > 0) {
-            const moveX = (dx / distance) * enemy.speed;
-            const moveY = (dy / distance) * enemy.speed;
-            
-            enemy.x += moveX;
-            enemy.y += moveY;
+            if (distance > minSeparation) {
+                const allowedStep = Math.min(enemy.speed, distance - minSeparation);
+                const moveX = (dx / distance) * allowedStep;
+                const moveY = (dy / distance) * allowedStep;
+                enemy.x += moveX;
+                enemy.y += moveY;
+            } else if (distance < minSeparation * 0.9) {
+                const moveX = -(dx / distance) * (enemy.speed * 0.5);
+                const moveY = -(dy / distance) * (enemy.speed * 0.5);
+                enemy.x += moveX;
+                enemy.y += moveY;
+            }
         }
         
         // Always rotate turret to face target
@@ -870,6 +928,7 @@ const CampaignMode = {
                     <td style="padding: 6px; border-bottom: 1px solid #444;">${accuracy}%</td>
                     <td style="padding: 6px; border-bottom: 1px solid #444;">${timeAliveSec}s</td>
                     <td style="padding: 6px; border-bottom: 1px solid #444;">${stats.deaths}</td>
+                    <td style="padding: 6px; border-bottom: 1px solid #444;">${stats.powerupsCollected || 0}</td>
                 </tr>`;
         });
         statsDiv.innerHTML = `
@@ -888,6 +947,7 @@ const CampaignMode = {
                         <th style="padding: 6px; text-align: left;">Accuracy</th>
                         <th style="padding: 6px; text-align: left;">Time Alive</th>
                         <th style="padding: 6px; text-align: left;">Deaths</th>
+                        <th style="padding: 6px; text-align: left;">Powerups</th>
                     </tr>
                 </thead>
                 <tbody>

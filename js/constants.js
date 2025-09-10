@@ -40,6 +40,7 @@ const GAME_CONFIG = {
     BULLET_SPEED: 6,
     BULLET_SIZE: 4,
     BULLET_DAMAGE: 1,
+    BULLET_MAX_LIFETIME_MS: 5000,
     
     // Obstacle settings
     MIN_OBSTACLES: 15,
@@ -89,13 +90,14 @@ const GAME_CONFIG = {
     AI_ORBIT_DISTANCE: 300, // Distance to maintain from enemy when orbiting
     AI_MIN_ORBIT_DISTANCE: 100, // Minimum distance before attempting to orbit
     AI_RETREAT_DURATION: 800, // How long to retreat when too close (milliseconds)
-    AI_AIMING_RANDOMNESS: 0.1, // Randomness in aiming (radians)
+    AI_AIMING_RANDOMNESS: 0, // Randomness in aiming (radians) - disabled
     AI_SHOT_LEADING_ENABLED: true, // Whether AI should lead shots
     AI_SHOT_LEADING_FACTOR: 20, // How much to lead shots (0-1, higher = more leading)
     AI_SLIDE_SPEED_MULTIPLIER: 0.5, // Speed multiplier for obstacle sliding
     AI_OBSTACLE_GENERATION_MAX_ATTEMPTS: 100, // Max attempts to place obstacles
     AI_POWERUP_CHASE_TIMEOUT: 2000, // How long AI will chase a powerup before giving up (milliseconds)
     AI_POWERUP_COOLDOWN: 5000, // How long AI will ignore powerups after giving up (milliseconds)
+    AI_TARGET_LOCK_DURATION_MS: 1000, // Minimum time to stick to a target before switching (FFA/TDM)
 };
 
 // =============================================================================
@@ -250,14 +252,11 @@ const CAMPAIGN_CONFIG = {
         BOSS: 'boss'
     },
     
-    // Enemy health multipliers (8x from inspiration game)
-    ENEMY_HEALTH_MULTIPLIER: 8,
-    
     // Enemy configurations
     ENEMIES: {
         CHASER: {
             health: 16,
-            speed: 2,
+            speed: 1.5,
             size: 25,
             color: '#ff6b6b',
             fireRate: 0.8, // seconds
@@ -267,7 +266,7 @@ const CAMPAIGN_CONFIG = {
         },
         SPREAD_SHOOTER: {
             health: 24,
-            speed: 3,
+            speed: 2,
             size: 30,
             color: '#4ecdc4',
             fireRate: 1.5,
@@ -291,17 +290,17 @@ const CAMPAIGN_CONFIG = {
         },
         BOSS: {
             health: 240,
-            speed: 2,
+            speed: 1.0,
             size: 50,
             color: '#e91e63',
-            fireRate: 1.0,
+            fireRate: 0.8,
             bulletSpeed: 5,
             bulletDamage: 2,
             bulletColor: '#ffff00',
             enrageHealth: 120, // 50% health
             enragedFireRate: 0.5,
             radialBullets: 16,
-            radialFireRate: 3.0
+            radialFireRate: 2.0
         }
     },
     
@@ -316,10 +315,28 @@ const CAMPAIGN_CONFIG = {
     
     // Map scaling per level
     MAP_SCALING: {
-        baseWidth: 1200,
-        baseHeight: 800,
+        baseWidth: 2000,
+        baseHeight: 1000,
         widthGrowth: 200,
         heightGrowth: 150
+    },
+    
+    // Background colors by level (1-5)
+    MAP_COLORS: ['#2a4a7a', '#4a2a6a', '#2a6a4a', '#6a4a2a', '#6a2a2a'],
+
+    // Enemy spawn controls
+    ENEMY_SPAWN_MARGIN: 150,
+    ENEMY_SPAWN_ATTEMPTS: 50,
+    ENEMY_SPAWN_MIN_DISTANCE_FROM_PLAYERS: 350,
+    ENEMY_FALLBACK_SPAWN_X_FACTOR: 0.7,
+    ENEMY_FALLBACK_SPAWN_RANGE_FACTOR: 0.2,
+
+    // Enemy color mapping by type (campaign rendering)
+    ENEMY_COLORS: {
+        chaser: '#84ff8a',
+        spreadShooter: '#d06bff',
+        turret: '#ffcf5f',
+        boss: '#ff4444'
     },
     
     // Player spawn settings
@@ -347,6 +364,9 @@ const CAMPAIGN_CONFIG = {
         minDistance: 100 // Minimum distance before camera starts following
     },
     
+    // Camera player weighting (players influence camera more than allies)
+    CAMERA_PLAYER_WEIGHT: 12,
+    
     // Difficulty settings (affects enemies only)
     DIFFICULTY: {
         EASY: {
@@ -361,8 +381,8 @@ const CAMPAIGN_CONFIG = {
         },
         HARD: {
             enemySpeedMultiplier: 1.4,
-            enemyFireRateMultiplier: 2,
-            enemyBulletSpeedMultiplier: 1.3
+            enemyFireRateMultiplier: 1.5,
+            enemyBulletSpeedMultiplier: 1.2
         }
     }
 };
